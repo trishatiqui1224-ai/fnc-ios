@@ -29,8 +29,6 @@
 #include "ios_haptics.h"
 #include "touch_controls.h"
 
-namespace fnc::touch {
-
 namespace {
 
 int g_boxing_style = 0; // 0 = Full Spectrum (Flick Pad), 1 = Classic Pad
@@ -103,14 +101,20 @@ void SetVirtualAxis(int axis_idx, int16_t value) {
   }
 }
 
+}  // namespace
+
 // ---------------------------------------------------------------------------
-//  Virtual Stick / Flick Pad View
+//  Virtual Stick / Flick Pad View (Global Scope for Objective-C)
 // ---------------------------------------------------------------------------
 @interface VirtualStickView : UIView
 @property(nonatomic, assign) BOOL isPunchPad;
 @property(nonatomic, assign) CGPoint value; // -1.0 to 1.0
 @property(nonatomic, strong) UIView* thumbView;
 @property(nonatomic, strong) CAShapeLayer* baseRing;
+
+- (instancetype)initWithFrame:(CGRect)frame isPunchPad:(BOOL)isPunchPad;
+- (void)updateTouch:(UITouch*)touch;
+- (void)resetThumb;
 @end
 
 @implementation VirtualStickView
@@ -219,11 +223,15 @@ void SetVirtualAxis(int axis_idx, int16_t value) {
 @end
 
 // ---------------------------------------------------------------------------
-//  Action Button View
+//  Action Button View (Global Scope for Objective-C)
 // ---------------------------------------------------------------------------
 @interface ActionButton : UIButton
 @property(nonatomic, assign) PadButton buttonId;
 @property(nonatomic, assign) int axisTrigger; // -1 if not trigger, 4=LT, 5=RT
+
+- (instancetype)initWithTitle:(NSString*)title buttonId:(PadButton)btnId trigger:(int)trig frame:(CGRect)frame;
+- (void)touchDown;
+- (void)touchUp;
 @end
 
 @implementation ActionButton
@@ -263,6 +271,8 @@ void SetVirtualAxis(int axis_idx, int16_t value) {
 }
 
 @end
+
+namespace {
 
 // ---------------------------------------------------------------------------
 //  Touch Overlay Container
@@ -361,7 +371,9 @@ void RebuildOverlayView() {
   }
 }
 
-} // namespace
+}  // namespace
+
+namespace fnc::touch {
 
 void Install() {
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -451,7 +463,9 @@ UIViewController* MakeLayoutEditor() {
   [done setTitle:@"Done" forState:UIControlStateNormal];
   done.titleLabel.font = [UIFont boldSystemFontOfSize:16];
   done.tintColor = [UIColor colorWithRed:0.04 green:0.52 blue:1.0 alpha:1.0];
-  [done addTarget:vc action:@selector(dismissModalViewControllerAnimated:) forControlEvents:UIControlEventTouchUpInside];
+  [done addAction:[UIAction actionWithHandler:^(UIAction*) {
+    [vc dismissViewControllerAnimated:YES completion:nil];
+  }] forControlEvents:UIControlEventTouchUpInside];
   [vc.view addSubview:done];
 
   return vc;

@@ -90,13 +90,36 @@ bool InstallDlcPackage(const fs::path& package_path, const fs::path& documents) 
   return false;
 }
 
+void ShowDlcInstaller(UIViewController* parent, const fs::path& documents);
+
+}  // namespace fnc::saves
+
+using namespace fnc::saves;
+
 #ifdef __OBJC__
 
-@interface FNCSaveManagerController : UIViewController <UIDocumentPickerDelegate>
-@property(nonatomic, assign) fs::path documents;
+// ---------------------------------------------------------------------------
+//  FNCSaveManagerController (Global Scope for Objective-C)
+// ---------------------------------------------------------------------------
+@interface FNCSaveManagerController : UIViewController <UIDocumentPickerDelegate> {
+  fs::path _documents;
+}
+- (const fs::path&)documents;
+- (void)setDocuments:(const fs::path&)docs;
+- (void)onDone;
+- (void)onBackup;
+- (void)onInstallDlc;
 @end
 
 @implementation FNCSaveManagerController
+
+- (const fs::path&)documents {
+  return _documents;
+}
+
+- (void)setDocuments:(const fs::path&)docs {
+  _documents = docs;
+}
 
 - (void)viewDidLoad {
   [super viewDidLoad];
@@ -156,6 +179,8 @@ bool InstallDlcPackage(const fs::path& package_path, const fs::path& documents) 
 }
 
 @end
+
+namespace fnc::saves {
 
 UIViewController* MakeSaveManager(const fs::path& documents) {
   FNCSaveManagerController* vc = [[FNCSaveManagerController alloc] init];

@@ -379,20 +379,17 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 // ---------------------------------------------------------------------------
 //  Launcher View Controller
 // ---------------------------------------------------------------------------
-@interface LauncherViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UIDocumentPickerDelegate> {
+@interface LauncherViewController : UITableViewController <UIDocumentPickerDelegate> {
  @public
   fs::path _documentsPath;
   fs::path _selectedSource;
   NSMutableDictionary<NSString*, NSString*>* _settings;
-  UITableView* _tableView;
-  UISegmentedControl* _segmentedControl;
   NSInteger _currentTab;
   BOOL _playTapped;
 }
 
 - (instancetype)initWithDocuments:(const fs::path&)docs;
 - (std::vector<Section>)visibleSections;
-- (const fs::path&)documentsPath;
 - (const fs::path&)selectedSource;
 - (BOOL)playTapped;
 - (void)resetSettings;
@@ -404,10 +401,6 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 
 @implementation LauncherViewController
 
-- (const fs::path&)documentsPath {
-  return _documentsPath;
-}
-
 - (const fs::path&)selectedSource {
   return _selectedSource;
 }
@@ -417,11 +410,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 }
 
 - (instancetype)initWithDocuments:(const fs::path&)docs {
-  self = [super init];
+  self = [super initWithStyle:UITableViewStyleInsetGrouped];
   if (self) {
     _documentsPath = docs;
     _currentTab = kTabGame;
     _settings = ReadSettings(_documentsPath);
+    self.title = @"Fight Night Champion";
 
     // Auto-detect game source
     auto sources = FindGameSources(_documentsPath);
@@ -436,44 +430,36 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   [super viewDidLoad];
   self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
   self.view.backgroundColor = [UIColor blackColor];
+  self.tableView.backgroundColor = [UIColor blackColor];
 
-  // Top Nav Bar
-  UINavigationBar* navBar = [[UINavigationBar alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 54)];
-  navBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-  navBar.barTintColor = [UIColor blackColor];
-  navBar.translucent = NO;
-
-  UINavigationItem* navItem = [[UINavigationItem alloc] initWithTitle:@"Fight Night Champion"];
+  // Navigation Items
   UIBarButtonItem* resetBtn = [[UIBarButtonItem alloc] initWithTitle:@"Reset" style:UIBarButtonItemStylePlain target:self action:@selector(resetSettings)];
   resetBtn.tintColor = [UIColor colorWithRed:0.04 green:0.52 blue:1.0 alpha:1.0]; // #0A84FF
   UIBarButtonItem* playBtn = [[UIBarButtonItem alloc] initWithTitle:@"Play" style:UIBarButtonItemStyleDone target:self action:@selector(playGame)];
   playBtn.tintColor = [UIColor colorWithRed:0.04 green:0.52 blue:1.0 alpha:1.0];
 
-  navItem.leftBarButtonItem = resetBtn;
-  navItem.rightBarButtonItem = playBtn;
-  [navBar setItems:@[navItem]];
-  [self.view addSubview:navBar];
+  self.navigationItem.leftBarButtonItem = resetBtn;
+  self.navigationItem.rightBarButtonItem = playBtn;
 
-  // 6-Tab Segmented Control
-  _segmentedControl = [[UISegmentedControl alloc] initWithItems:TabTitles()];
-  _segmentedControl.frame = CGRectMake(16, 62, self.view.bounds.size.width - 32, 34);
-  _segmentedControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-  _segmentedControl.selectedSegmentIndex = _currentTab;
-  [_segmentedControl addTarget:self action:@selector(tabChanged:) forControlEvents:UIControlEventValueChanged];
-  [self.view addSubview:_segmentedControl];
+  // 6-Tab Segmented Control in Table Header
+  UISegmentedControl* segmentedControl = [[UISegmentedControl alloc] initWithItems:TabTitles()];
+  segmentedControl.selectedSegmentIndex = _currentTab;
+  [segmentedControl addTarget:self action:@selector(tabChanged:) forControlEvents:UIControlEventValueChanged];
 
-  // Inset Grouped Table View
-  _tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 104, self.view.bounds.size.width, self.view.bounds.size.height - 104) style:UITableViewStyleInsetGrouped];
-  _tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-  _tableView.backgroundColor = [UIColor blackColor];
-  _tableView.dataSource = self;
-  _tableView.delegate = self;
-  [self.view addSubview:_tableView];
+  UIView* header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 320, 52)];
+  segmentedControl.translatesAutoresizingMaskIntoConstraints = NO;
+  [header addSubview:segmentedControl];
+  [NSLayoutConstraint activateConstraints:@[
+    [segmentedControl.leadingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.leadingAnchor],
+    [segmentedControl.trailingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.trailingAnchor],
+    [segmentedControl.centerYAnchor constraintEqualToAnchor:header.centerYAnchor],
+  ]];
+  self.tableView.tableHeaderView = header;
 }
 
 - (void)tabChanged:(UISegmentedControl*)sender {
   _currentTab = sender.selectedSegmentIndex;
-  [_tableView reloadData];
+  [self.tableView reloadData];
 }
 
 - (void)resetSettings {
@@ -484,7 +470,7 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   [alert addAction:[UIAlertAction actionWithTitle:@"Reset" style:UIAlertActionStyleDestructive handler:^(UIAlertAction*) {
     fs::remove(self->_documentsPath / "settings.json");
     self->_settings = ReadSettings(self->_documentsPath);
-    [self->_tableView reloadData];
+    [self.tableView reloadData];
   }]];
   [self presentViewController:alert animated:YES completion:nil];
 }
@@ -610,7 +596,7 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
         if ([opt.key isEqualToString:@"boxing_style"]) {
           fnc::touch::SetBoxingStyle([c.value intValue]);
         }
-        [self->_tableView reloadData];
+        [self.tableView reloadData];
       }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -634,7 +620,7 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   if (urls.count > 0) {
     NSURL* url = urls.firstObject;
     _selectedSource = fs::path(url.path.UTF8String);
-    [_tableView reloadData];
+    [self.tableView reloadData];
   }
 }
 
@@ -665,7 +651,9 @@ fs::path Run(const fs::path& documents) {
     }
 
     LauncherViewController* launcher = [[LauncherViewController alloc] initWithDocuments:documents];
-    window.rootViewController = launcher;
+    UINavigationController* nav = [[UINavigationController alloc] initWithRootViewController:launcher];
+    nav.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    window.rootViewController = nav;
     [window makeKeyAndVisible];
 
     // Spin modal loop until Play tapped
@@ -675,6 +663,7 @@ fs::path Run(const fs::path& documents) {
 
     resultSource = [launcher selectedSource];
     window.hidden = YES;
+    window.rootViewController = nil;
   });
 
   return resultSource;

@@ -28,6 +28,7 @@
 #include "audio/coreaudio_driver.h"
 #include "battery.h"
 #include "boot_trace.h"
+#include "fnc_init.h"
 #include "fnc_app.h"
 #include "ios_haptics.h"
 #include "launcher.h"

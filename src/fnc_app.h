@@ -6,6 +6,8 @@
 
 #include <rex/rex_app.h>
 
+extern const rex::PPCImageInfo PPCImageConfig;
+
 namespace fnc_prof {
 void Start(const void* func_mappings);  // src/fnc_sampler.cpp
 }

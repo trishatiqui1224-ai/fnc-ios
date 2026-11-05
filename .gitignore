@@ -1,0 +1,56 @@
+# Build and Derived Data
+build/
+DerivedData/
+.build/
+*.xcodeproj/
+!*.xcodeproj/project.pbxproj
+*.xcworkspace/
+*.ipa
+Payload/
+*.dSYM/
+*.o
+*.obj
+*.a
+*.dylib
+*.framework
+
+# Game assets & binaries (Strictly non-redistributable / Zero copyrighted material)
+game/
+*.iso
+*.ISO
+*.xex
+*.XEX
+*.rar
+*.zip
+*.7z
+*.tar.gz
+!gen.tar.gz
+assets/game_root/
+Documents/
+
+# Local configuration & logs
+*.log
+*.txt.bak
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+__pycache__/
+*.pyc
+
+# ReXGlue SDK build artifacts
+rexglue-sdk-ios/
+.fnc-ios/
+sdk/
+
+# Generated code (Packed inside gen.tar.gz for fast checkout)
+ios/generated/
+generated/default/*.cpp
+generated/default/*.h
+generated/default/*.json
+generated/default/*.stamp
+generated/default/*.d
+!generated/default/sources.cmake
+!generated/default/rexglue.cmake

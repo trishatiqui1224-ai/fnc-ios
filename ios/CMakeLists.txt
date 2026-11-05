@@ -266,7 +266,8 @@ endif()
 
 if(FNC_WITH_GAME)
     # Prevent linker dead-stripping of statically recompiled guest functions
-    target_link_libraries(fncreborn PRIVATE -Wl,-force_load,$<TARGET_FILE:fnc_recomp>)
+    add_dependencies(fncreborn fnc_recomp)
+    target_link_libraries(fncreborn PRIVATE fnc_recomp -Wl,-force_load,$<TARGET_FILE:fnc_recomp>)
 endif()
 
 if(TARGET rexgpu-xenos)

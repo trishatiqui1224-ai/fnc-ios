@@ -379,18 +379,10 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 // ---------------------------------------------------------------------------
 //  Launcher View Controller
 // ---------------------------------------------------------------------------
-@interface LauncherViewController : UITableViewController <UIDocumentPickerDelegate> {
- @public
-  fs::path _documentsPath;
-  fs::path _selectedSource;
-  NSMutableDictionary<NSString*, NSString*>* _settings;
-  NSInteger _currentTab;
-  BOOL _playTapped;
-}
-
+@interface LauncherViewController : UITableViewController <UIDocumentPickerDelegate>
 - (instancetype)initWithDocuments:(const fs::path&)docs;
 - (std::vector<Section>)visibleSections;
-- (const fs::path&)selectedSource;
+- (fs::path)selectedSource;
 - (BOOL)playTapped;
 - (void)resetSettings;
 - (void)playGame;
@@ -399,9 +391,15 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 - (void)exportLogsZip;
 @end
 
-@implementation LauncherViewController
+@implementation LauncherViewController {
+  fs::path _documentsPath;
+  fs::path _selectedSource;
+  NSMutableDictionary<NSString*, NSString*>* _settings;
+  NSInteger _currentTab;
+  BOOL _playTapped;
+}
 
-- (const fs::path&)selectedSource {
+- (fs::path)selectedSource {
   return _selectedSource;
 }
 
@@ -467,9 +465,10 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
                                                                  message:@"Reset all Fight Night Champion settings to optimal defaults?"
                                                           preferredStyle:UIAlertControllerStyleAlert];
   [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+  fs::path docs = _documentsPath;
   [alert addAction:[UIAlertAction actionWithTitle:@"Reset" style:UIAlertActionStyleDestructive handler:^(UIAlertAction*) {
-    fs::remove(self->_documentsPath / "settings.json");
-    self->_settings = ReadSettings(self->_documentsPath);
+    fs::remove(docs / "settings.json");
+    self->_settings = ReadSettings(docs);
     [self.tableView reloadData];
   }]];
   [self presentViewController:alert animated:YES completion:nil];
@@ -589,10 +588,11 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
     UIAlertController* sheet = [UIAlertController alertControllerWithTitle:opt.title
                                                                    message:opt.summary
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
+    fs::path docs = _documentsPath;
     for (const auto& c : opt.choices) {
       [sheet addAction:[UIAlertAction actionWithTitle:c.title style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
         self->_settings[opt.key] = c.value;
-        WriteSettings(self->_documentsPath, self->_settings);
+        WriteSettings(docs, self->_settings);
         if ([opt.key isEqualToString:@"boxing_style"]) {
           fnc::touch::SetBoxingStyle([c.value intValue]);
         }

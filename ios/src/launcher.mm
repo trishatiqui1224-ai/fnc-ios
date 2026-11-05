@@ -379,17 +379,42 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 // ---------------------------------------------------------------------------
 //  Launcher View Controller
 // ---------------------------------------------------------------------------
-@interface LauncherViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UIDocumentPickerDelegate>
-@property(nonatomic, assign) fs::path documentsPath;
-@property(nonatomic, assign) fs::path selectedSource;
-@property(nonatomic, strong) NSMutableDictionary<NSString*, NSString*>* settings;
-@property(nonatomic, strong) UITableView* tableView;
-@property(nonatomic, strong) UISegmentedControl* segmentedControl;
-@property(nonatomic, assign) NSInteger currentTab;
-@property(nonatomic, assign) BOOL playTapped;
+@interface LauncherViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UIDocumentPickerDelegate> {
+ @public
+  fs::path _documentsPath;
+  fs::path _selectedSource;
+  NSMutableDictionary<NSString*, NSString*>* _settings;
+  UITableView* _tableView;
+  UISegmentedControl* _segmentedControl;
+  NSInteger _currentTab;
+  BOOL _playTapped;
+}
+
+- (instancetype)initWithDocuments:(const fs::path&)docs;
+- (std::vector<Section>)visibleSections;
+- (const fs::path&)documentsPath;
+- (const fs::path&)selectedSource;
+- (BOOL)playTapped;
+- (void)resetSettings;
+- (void)playGame;
+- (void)tabChanged:(UISegmentedControl*)sender;
+- (void)switchToggled:(UISwitch*)sw;
+- (void)exportLogsZip;
 @end
 
 @implementation LauncherViewController
+
+- (const fs::path&)documentsPath {
+  return _documentsPath;
+}
+
+- (const fs::path&)selectedSource {
+  return _selectedSource;
+}
+
+- (BOOL)playTapped {
+  return _playTapped;
+}
 
 - (instancetype)initWithDocuments:(const fs::path&)docs {
   self = [super init];
@@ -457,9 +482,9 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
                                                           preferredStyle:UIAlertControllerStyleAlert];
   [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
   [alert addAction:[UIAlertAction actionWithTitle:@"Reset" style:UIAlertActionStyleDestructive handler:^(UIAlertAction*) {
-    fs::remove(self.documentsPath / "settings.json");
-    self.settings = ReadSettings(self.documentsPath);
-    [self.tableView reloadData];
+    fs::remove(self->_documentsPath / "settings.json");
+    self->_settings = ReadSettings(self->_documentsPath);
+    [self->_tableView reloadData];
   }]];
   [self presentViewController:alert animated:YES completion:nil];
 }
@@ -580,12 +605,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     for (const auto& c : opt.choices) {
       [sheet addAction:[UIAlertAction actionWithTitle:c.title style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
-        self.settings[opt.key] = c.value;
-        WriteSettings(self.documentsPath, self.settings);
+        self->_settings[opt.key] = c.value;
+        WriteSettings(self->_documentsPath, self->_settings);
         if ([opt.key isEqualToString:@"boxing_style"]) {
           fnc::touch::SetBoxingStyle([c.value intValue]);
         }
-        [self.tableView reloadData];
+        [self->_tableView reloadData];
       }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -644,11 +669,11 @@ fs::path Run(const fs::path& documents) {
     [window makeKeyAndVisible];
 
     // Spin modal loop until Play tapped
-    while (!launcher.playTapped) {
+    while (![launcher playTapped]) {
       [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     }
 
-    resultSource = launcher.selectedSource;
+    resultSource = [launcher selectedSource];
     window.hidden = YES;
   });
 

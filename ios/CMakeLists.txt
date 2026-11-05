@@ -280,7 +280,7 @@ set(_metallib_out "${CMAKE_CURRENT_BINARY_DIR}/FNCShaders.metallib")
 
 add_custom_command(
     OUTPUT "${_metallib_out}"
-    COMMAND xcrun -sdk iphoneos metal -c -std=ios-metal3.0 "${_metal_src}" -o "${_air_out}"
+    COMMAND xcrun -sdk iphoneos metal -c -std=metal3.0 "${_metal_src}" -o "${_air_out}"
     COMMAND xcrun -sdk iphoneos metallib "${_air_out}" -o "${_metallib_out}"
     DEPENDS "${_metal_src}"
     COMMENT "FNC Reborn: Compiling Apple Metal shader library (FNCShaders.metallib)"
@@ -376,3 +376,4 @@ add_custom_target(ipa
     VERBATIM
 )
 add_dependencies(ipa fncreborn_package)
+

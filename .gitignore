@@ -54,3 +54,7 @@ generated/default/*.stamp
 generated/default/*.d
 !generated/default/sources.cmake
 !generated/default/rexglue.cmake
+
+# CI helper scripts
+tools/check_ci.py
+

@@ -183,8 +183,14 @@ extern "C" void sub_8231DAB8(PPCContext& __restrict ctx, uint8_t* base) {
   // Your boxer = lower address (fnc_view_boxer = 0) or the higher one; both must be seen recently.
   uint32_t o0 = g_boxer[0].obj.load(), o1 = g_boxer[1].obj.load();
   uint64_t s0 = g_boxer[0].seen.load(), s1 = g_boxer[1].seen.load();
-  if (!o0 || !o1 || o0 == o1 || g_update - s0 > 30 || g_update - s1 > 30) return;
-  if (!BoxerValid(base, o0) || !BoxerValid(base, o1)) return;
+  if (!o0 || !o1 || o0 == o1 || g_update - s0 > 30 || g_update - s1 > 30) {
+    g_eye_valid = false;
+    return;
+  }
+  if (!BoxerValid(base, o0) || !BoxerValid(base, o1)) {
+    g_eye_valid = false;
+    return;
+  }
   uint32_t lo = o0 < o1 ? o0 : o1, hi = o0 < o1 ? o1 : o0;
   uint32_t me = REXCVAR_GET(fnc_view_boxer) == 1 ? hi : lo;
   uint32_t opp = me == o0 ? o1 : o0;

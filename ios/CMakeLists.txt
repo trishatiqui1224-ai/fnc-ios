@@ -194,14 +194,11 @@ set(FNC_APP_SOURCES
     src/touch_controls.mm
     src/save_manager.mm
     src/boot_trace.cpp
-    src/probe.cpp
     src/battery.mm
     src/lifecycle.mm
     src/memory_report.mm
     src/ios_haptics.mm
     src/display_rate.mm
-    src/ingame_options.mm
-    src/gpu_capture.mm
     src/audio/coreaudio_driver.mm
     # Game Overrides & Hooks
     ${FNC_REPO}/src/fnc_hooks.cpp

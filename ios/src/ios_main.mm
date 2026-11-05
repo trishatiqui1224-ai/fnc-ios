@@ -171,7 +171,18 @@ int main(int argc, char* argv[]) {
                                                                        message:@"Please place your retail Fight Night Champion .iso or extracted folder containing default.xex in the Documents folder."
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        UIWindow* keyWin = [UIApplication sharedApplication].windows.firstObject;
+        UIWindow* keyWin = nil;
+        for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
+          if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+            UIWindowScene* winScene = (UIWindowScene*)scene;
+            for (UIWindow* w in winScene.windows) {
+              if (w.isKeyWindow) { keyWin = w; break; }
+            }
+          }
+        }
+        if (!keyWin) {
+          keyWin = [UIApplication sharedApplication].delegate.window;
+        }
         [keyWin.rootViewController presentViewController:alert animated:YES completion:nil];
       });
       fnc::boot::Trace("FATAL: No game source found in Documents. Waiting for user files.");
@@ -180,20 +191,28 @@ int main(int argc, char* argv[]) {
 
     // Build arguments
     fnc::boot::Trace(std::string("audio: activating the session"));
+    rex::audio::ios::PrepareAudioSession();
+
     fnc::boot::Trace(std::string("game: parsing the arguments for: ") + gameSource.string());
     auto gameArgs = BuildGameArguments(docs, caches, gameSource);
 
     std::vector<char*> c_argv;
+    c_argv.reserve(gameArgs.size() + 1);
     for (auto& s : gameArgs) {
       c_argv.push_back(s.data());
     }
-    int c_argc = static_cast<int>(c_argv.size());
+    c_argv.push_back(nullptr);
+    int c_argc = static_cast<int>(gameArgs.size());
+
+    auto leftovers = rex::cvar::Init(c_argc, c_argv.data());
+    rex::cvar::ApplyEnvironment();
+    rex::InitLoggingEarly();
 
     // Initialize SDL Context
     fnc::boot::Trace("game: initializing the SDL context");
-    SDL_SetMainReady();
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
-      fnc::boot::Trace(std::string("FATAL: SDL_Init failed: ") + SDL_GetError());
+    rex::ui::SDLWindowedAppContext context;
+    if (!context.Initialize()) {
+      fnc::boot::Trace("FATAL: SDL context failed to initialize");
       return 1;
     }
 
@@ -201,17 +220,30 @@ int main(int argc, char* argv[]) {
     fnc::touch::Install();
     fnc::touch::InstallFpsCounter();
 
-    // Launch ReXApp
-    fnc::boot::Trace("game: OnInitialize -> entering the main loop");
-    rex::ui::WindowedAppContextSdl app_ctx;
-    auto app = FncApp::Create(app_ctx);
+    // Create App
+    fnc::boot::Trace("game: creating the app");
+    std::unique_ptr<rex::ui::WindowedApp> app = FncApp::Create(context);
     if (!app) {
       fnc::boot::Trace("FATAL: FncApp::Create returned null");
       return 1;
     }
 
-    int exit_code = app->Run(c_argc, c_argv.data());
+    const auto& names = app->GetPositionalOptions();
+    std::map<std::string, std::string> options;
+    const size_t n = std::min(leftovers.size(), names.size());
+    for (size_t i = 0; i < n; ++i) {
+      options[names[i]] = leftovers[i];
+    }
+    app->SetParsedArguments(std::move(options));
+
+    fnc::boot::Trace("game: OnInitialize (paths, log, GPU plugin, runtime, XEX)");
+    const bool initialized = app->OnInitialize();
+    fnc::boot::Trace(initialized ? "game: OnInitialize done, entering main loop"
+                                : "game: OnInitialize FAILED (see fncreborn.log)");
+
+    const int exit_code = initialized ? context.RunMainMessageLoop() : 1;
     fnc::boot::Trace("game: main loop exited with code: " + std::to_string(exit_code));
+    app->InvokeOnDestroy();
     return exit_code;
   }
 }

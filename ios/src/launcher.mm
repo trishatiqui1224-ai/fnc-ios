@@ -310,12 +310,13 @@ void WriteSettings(const fs::path& documents, NSDictionary<NSString*, NSString*>
   std::ofstream f(p);
   if (f.is_open()) {
     f << "{\n";
-    __block BOOL first = YES;
-    [settings enumerateKeysAndObjectsUsingBlock:^(NSString* key, NSString* val, BOOL*) {
+    bool first = true;
+    for (NSString* key in settings) {
+      NSString* val = settings[key];
       if (!first) f << ",\n";
-      first = NO;
+      first = false;
       f << "  \"" << key.UTF8String << "\": \"" << val.UTF8String << "\"";
-    }];
+    }
     f << "\n}\n";
   }
 }
@@ -376,8 +377,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   return args;
 }
 
+}  // namespace fnc::launcher
+
+using namespace fnc::launcher;
+
 // ---------------------------------------------------------------------------
-//  Launcher View Controller
+//  Launcher View Controller (Global Scope for Objective-C)
 // ---------------------------------------------------------------------------
 @interface LauncherViewController : UITableViewController <UIDocumentPickerDelegate>
 - (instancetype)initWithDocuments:(const fs::path&)docs;
@@ -635,6 +640,8 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 }
 
 @end
+
+namespace fnc::launcher {
 
 fs::path Run(const fs::path& documents) {
   __block fs::path resultSource;

@@ -258,7 +258,11 @@ void Install(std::function<void()> pause, std::function<void()> resume) {
 
 void KeepMetalViewWindowSized() {
   static Class metal = NSClassFromString(@"SDL_uikitmetalview");
+#if __has_feature(objc_arc)
   static __weak UIView* cached = nil;
+#else
+  static UIView* cached = nil;
+#endif
   if (!metal) {
     return;
   }

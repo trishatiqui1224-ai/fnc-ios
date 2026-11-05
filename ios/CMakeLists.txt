@@ -239,6 +239,11 @@ target_compile_definitions(fncreborn PRIVATE
     MEDIA_ID="2DC50868"
 )
 
+target_compile_options(fncreborn PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-gline-tables-only>
+)
+
 target_link_libraries(fncreborn PRIVATE
     fnc_headers
     "-framework Foundation"

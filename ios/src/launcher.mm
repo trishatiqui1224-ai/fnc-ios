@@ -645,7 +645,7 @@ namespace fnc::launcher {
 
 fs::path Run(const fs::path& documents) {
   __block fs::path resultSource;
-  dispatch_sync(dispatch_get_main_queue(), ^{
+  void (^showLauncherAndWait)(void) = ^{
     UIWindow* window = nil;
     for (UIWindowScene* scene in [UIApplication sharedApplication].connectedScenes) {
       if ([scene isKindOfClass:[UIWindowScene class]]) {
@@ -671,7 +671,15 @@ fs::path Run(const fs::path& documents) {
     resultSource = [launcher selectedSource];
     window.hidden = YES;
     window.rootViewController = nil;
-  });
+  };
+  // SDL invokes the application's main() on the UIKit main thread. Dispatching
+  // synchronously to the main queue from there deadlocks before the launcher
+  // can appear, so execute the UI work inline in that case.
+  if ([NSThread isMainThread]) {
+    showLauncherAndWait();
+  } else {
+    dispatch_sync(dispatch_get_main_queue(), showLauncherAndWait);
+  }
 
   return resultSource;
 }

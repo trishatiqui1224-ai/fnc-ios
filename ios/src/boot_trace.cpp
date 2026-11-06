@@ -315,7 +315,8 @@ void Trace(const std::string& line) {
   text += tail;
   text += line;
   text += '\n';
-  WriteFdRaw(g_boot_fd.load(std::memory_order_acquire), text.data(), text.size());
+  const int fd = g_boot_fd.load(std::memory_order_acquire);
+  WriteFdRaw(fd >= 0 ? fd : STDERR_FILENO, text.data(), text.size());
 }
 
 }  // namespace fnc::boot

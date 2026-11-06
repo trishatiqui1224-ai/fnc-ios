@@ -144,6 +144,13 @@ int main(int argc, char* argv[]) {
     const fs::path docs = DocumentsFolder();
     const fs::path caches = CachesFolder();
 
+    // Open the crash trace before doing any startup work. Without this call,
+    // Trace() has no file descriptor and early startup failures leave no logs.
+    std::error_code logDirError;
+    fs::create_directories(docs / "logs", logDirError);
+    fnc::boot::Open((docs / "logs" / "boot.txt").string());
+    fnc::boot::SetLogFilePath((docs / "logs" / "fnc.log").string());
+
     // Line 1: Immediate boot trace
     auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     char timebuf[64];
@@ -167,7 +174,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (gameSource.empty()) {
-      dispatch_sync(dispatch_get_main_queue(), ^{
+      void (^showNoSourceAlert)(void) = ^{
         UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"No Game Source Detected"
                                                                        message:@"Please place your retail Fight Night Champion .iso or extracted folder containing default.xex in the Documents folder."
                                                                 preferredStyle:UIAlertControllerStyleAlert];
@@ -185,7 +192,12 @@ int main(int argc, char* argv[]) {
           keyWin = [UIApplication sharedApplication].delegate.window;
         }
         [keyWin.rootViewController presentViewController:alert animated:YES completion:nil];
-      });
+      };
+      if ([NSThread isMainThread]) {
+        showNoSourceAlert();
+      } else {
+        dispatch_sync(dispatch_get_main_queue(), showNoSourceAlert);
+      }
       fnc::boot::Trace("FATAL: No game source found in Documents. Waiting for user files.");
       return 1;
     }

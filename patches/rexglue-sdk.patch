@@ -859,7 +859,7 @@ diff --git a/src/kernel/xam/xam_input.cpp b/src/kernel/xam/xam_input.cpp
 index 80c3634..4b4314c 100644
 --- a/src/kernel/xam/xam_input.cpp
 +++ b/src/kernel/xam/xam_input.cpp
-@@ -21,6 +21,16 @@
+@@ -21,6 +21,20 @@
  
  #pragma GCC diagnostic ignored "-Wunused-parameter"
  

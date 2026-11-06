@@ -280,6 +280,8 @@ def apply_fnc_reborn_patch(sdk):
             text=True,
         )
         print(f"[Codegen] Result: {res2.stdout.strip()} {res2.stderr.strip()}")
+        if res2.returncode != 0:
+            sys.exit("[ERROR] FNC Reborn SDK patch failed; refusing to mark it applied.")
 
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("applied\n", encoding="utf-8")

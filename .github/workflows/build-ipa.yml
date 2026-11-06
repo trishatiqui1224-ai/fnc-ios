@@ -150,10 +150,10 @@ jobs:
             exit 1
           fi
 
-          IPA_SIZE=$(wc -c < "${IPA_PATH}")
-          echo "[CI Gate] IPA size: ${IPA_SIZE} bytes"
-          if [ "${IPA_SIZE}" -lt 83886080 ]; then
-            echo "[CI Gate] FATAL: IPA size is less than 80 MB (${IPA_SIZE} bytes)! Recompilation files or frameworks missing!"
+          IPA_CONTENTS_SIZE=$(unzip -l "${IPA_PATH}" | awk '/^[[:space:]]*[0-9]+[[:space:]]/ { total += $1 } END { print total + 0 }')
+          echo "[CI Gate] Uncompressed IPA contents: ${IPA_CONTENTS_SIZE} bytes"
+          if [ "${IPA_CONTENTS_SIZE}" -lt 83886080 ]; then
+            echo "[CI Gate] FATAL: uncompressed IPA contents are less than 80 MB (${IPA_CONTENTS_SIZE} bytes)! Recompilation files or frameworks may be missing!"
             exit 1
           fi
 

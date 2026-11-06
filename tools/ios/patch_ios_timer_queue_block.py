@@ -71,7 +71,7 @@ CV_UNTIL_ANCHOR = '''                m_cv.wait_until(
                     },
                     timeoutTime);
 '''
-CV_UNTIL_NEW = '''                m_cv.wait_until(  // LOCAL PATCH - iOS: time before predicate
+CV_UNTIL_NEW = '''                m_cv.wait_until(
                     lock,
                     timeoutTime,
                     [&]() -> bool {

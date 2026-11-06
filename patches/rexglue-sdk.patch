@@ -1076,16 +1076,13 @@ diff --git a/src/ui/rex_app.cpp b/src/ui/rex_app.cpp
 index b94fe9e..0ebad8f 100644
 --- a/src/ui/rex_app.cpp
 +++ b/src/ui/rex_app.cpp
-@@ -51,6 +51,13 @@ REXCVAR_DEFINE_STRING(gpu_plugin, "", "GPU",
+@@ -51,6 +51,10 @@ REXCVAR_DEFINE_STRING(gpu_plugin, "", "GPU",
                        "GPU emulation")
      .lifecycle(rex::cvar::Lifecycle::kInitOnly);
  
 +REXCVAR_DEFINE_STRING(gpu_backend, "any", "GPU",
 +                      "GPU backend for the loaded plugin to use ('d3d12', 'vulkan', or 'any')")
 +    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-+
-+REXCVAR_DEFINE_BOOL(dev_overlays, false, "UI",
-+                    "Enable the SDK developer overlays (F3/F4/F7/backtick)");
 +
  namespace rex {
  

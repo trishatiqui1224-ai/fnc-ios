@@ -239,6 +239,7 @@ target_compile_definitions(fncreborn PRIVATE
     REX_PLATFORM_IOS=1
     TITLE_ID="45410915"
     MEDIA_ID="2DC50868"
+    REXGLUE_BUILD_CONFIG="Release"
 )
 
 target_compile_options(fncreborn PRIVATE

@@ -138,6 +138,9 @@ REXCVAR_DEFINE_STRING(gpu_backend, "d3d12", "GPU",
     .allowed({"d3d12", "vulkan", "native"})
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+REXCVAR_DEFINE_BOOL(dev_overlays, false, "UI",
+                    "Enable the SDK developer overlays (F3/F4/F7/backtick)");
+
 """
 
 # ---------------------------------------------------------------------------

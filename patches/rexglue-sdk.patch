@@ -430,14 +430,6 @@ index a744375..0cd8599 100644
      .lifecycle(rex::cvar::Lifecycle::kHotReload);
  
  REXCVAR_DEFINE_BOOL(readback_resolve_half_pixel_offset, false, "GPU",
-@@ -86,3 +86,7 @@
-+namespace rex::graphics::fncperf {
-+extern std::atomic<uint64_t> g_swaps;  // fnc_swap_counter.cpp (F1 frame-rate counter)
-+}  // namespace rex::graphics::fncperf
-+
- namespace rex::graphics {
- 
- using namespace rex::graphics::xenos;
 @@ -96,6 +113,9 @@ ReadbackResolveMode ParseReadbackResolveMode(std::string_view value) {
    if (value == "full") {
      return ReadbackResolveMode::kFull;
@@ -501,11 +493,12 @@ index a744375..0cd8599 100644
    }
  
    assert_true(reader->read_offset() ==
-@@ -929,6 +962,7 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
+@@ -929,6 +962,8 @@ bool CommandProcessor::ExecutePacketType3_INTERRUPT(memory::RingBuffer* reader,
  bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, uint32_t packet,
                                                    uint32_t count) {
    SCOPE_profile_cpu_f("gpu");
-+  fncperf::g_swaps.fetch_add(1, std::memory_order_relaxed);
++  extern std::atomic<uint64_t> g_fnc_swaps;
++  g_fnc_swaps.fetch_add(1, std::memory_order_relaxed);
  
  #ifdef REXGLUE_ENABLE_PERF_COUNTERS
    {
@@ -606,13 +599,13 @@ index 0000000..23197c8
 +#include <atomic>
 +#include <cstdint>
 +
-+namespace rex::graphics::fncperf {
-+std::atomic<uint64_t> g_swaps{0};
-+}  // namespace rex::graphics::fncperf
++namespace rex::graphics {
++std::atomic<uint64_t> g_fnc_swaps{0};
++}  // namespace rex::graphics
 +
 +#ifdef _WIN32
 +extern "C" __declspec(dllexport) uint64_t fnc_gpu_swap_count() {
-+  return rex::graphics::fncperf::g_swaps.load(std::memory_order_relaxed);
++  return rex::graphics::g_fnc_swaps.load(std::memory_order_relaxed);
 +}
 +#endif
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp

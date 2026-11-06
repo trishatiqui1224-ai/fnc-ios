@@ -71,7 +71,7 @@ jobs:
           path: |
             ${{ github.workspace }}/../rexglue-sdk-ios
             ~/.fnc-ios
-          key: ${{ runner.os }}-rexglue-sdk-v0.10.0-mvk-1.4.1-fnc-p4
+          key: ${{ runner.os }}-rexglue-sdk-v0.10.0-mvk-1.4.1-fnc-p5
 
       - name: Setup AppIcon & Assets Catalog
         run: |

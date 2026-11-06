@@ -430,10 +430,7 @@ index a744375..0cd8599 100644
      .lifecycle(rex::cvar::Lifecycle::kHotReload);
  
  REXCVAR_DEFINE_BOOL(readback_resolve_half_pixel_offset, false, "GPU",
-@@ -80,6 +93,10 @@ REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU",
-                     "pipelines are being prepared.")
-     .lifecycle(rex::cvar::Lifecycle::kHotReload);
- 
+@@ -86,3 +86,7 @@
 +namespace rex::graphics::fncperf {
 +extern std::atomic<uint64_t> g_swaps;  // fnc_swap_counter.cpp (F1 frame-rate counter)
 +}  // namespace rex::graphics::fncperf

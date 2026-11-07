@@ -3,10 +3,10 @@
 
 gpu_plugin = "xenos"
 gpu_backend = "vulkan"
-render_target_path_vulkan = "fbo"
+render_target_path_vulkan = "fsi"
 log_level = "info"
 log_file = "fnc.log"
-async_shader_compilation = false
+async_shader_compilation = true
 
 # Frame rate cap: 30 (original console), 60 (smooth default), 120 (Apple ProMotion)
 fnc_frame_rate = 60
@@ -16,21 +16,19 @@ resolution_scale = 1
 swap_post_effect = "fxaa"
 
 # Graphics & Rendering fixes for Fight Night Champion
-gpu_allow_invalid_fetch_constants = false
+gpu_allow_invalid_fetch_constants = true
 clear_memory_page_state = true
 use_fuzzy_alpha_epsilon = true
 gamma_render_target_as_unorm16 = true
 native_2x_msaa = false
 readback_resolve = "fast"
-vulkan_readback_resolve = true
-ios_readback_max_kb = 0
+ios_readback_max_kb = 64
 gpu_sin_msaa = true
 
 # Texture cache limits in MB for iOS unified memory:
-# Soft limit = 384 MB, Hard limit = 768 MB to prevent Metal OOM aborts.
-texture_cache_memory_limit_soft = 384
-texture_cache_memory_limit_hard = 768
-texture_cache_memory_limit_render_to_texture = 128
+texture_cache_memory_limit_soft = 1024
+texture_cache_memory_limit_hard = 2048
+texture_cache_memory_limit_render_to_texture = 512
 
 # Camera & controls
 fnc_fp_enable = true

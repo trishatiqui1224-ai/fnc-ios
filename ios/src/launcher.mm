@@ -141,7 +141,7 @@ const std::vector<Section>& Sections() {
             @"false"},
            {@"async_pipelines", OptionType::kSwitch, @"Compile pipelines in the background",
             @"Compiles GPU pipelines asynchronously on worker threads to eliminate hitching.",
-            @"false"},
+            @"true"},
        }, kTabGraphics},
       {@"DISPLAY", nil,
        {
@@ -173,17 +173,17 @@ const std::vector<Section>& Sections() {
             @"Prevents warped boxer trunks, stretched gloves, and detached mesh vertices (Recommended ON).",
             @"true"},
            {@"render_target_path", OptionType::kChoice, @"Render target path (Vulkan)",
-            @"FBO enables explicit frame buffer object tile emulation to prevent black rendering blocks.",
-            @"fbo",
-            {{@"FBO (Recommended for Fight Night)", @"fbo"},
-             {@"Native", @"native"}}},
+            @"FSI uses Fragment Shader Interlock (natively supported on Apple A19) for seamless 3-strip predicated tiling in 3D matches. FBO uses host framebuffers.",
+            @"fsi",
+            {{@"FSI (Fragment Shader Interlock - Native A19)", @"fsi"},
+             {@"FBO (Host Framebuffers)", @"fbo"}}},
            {@"texture_cache_limit", OptionType::kChoice, @"Texture cache limit (Memory)",
-            @"Limits texture streaming footprint to 384/768 MB to prevent Metal OOM aborts on mobile GPUs.",
-            @"384",
-            {{@"384 MB Soft / 768 MB Hard (Recommended)", @"384"},
+            @"Limits texture streaming footprint to 1024/2048 MB to prevent texture starvation.",
+            @"1024",
+            {{@"1024 MB Soft / 2048 MB Hard (Recommended)", @"1024"},
              {@"512 MB Soft / 1024 MB Hard", @"512"},
-             {@"256 MB Soft / 512 MB Hard", @"256"},
-             {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
+             {@"384 MB Soft / 768 MB Hard", @"384"},
+             {@"2048 MB Soft / 4096 MB Hard", @"2048"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Reflective Trunks/Sweat)",
             @"Controls GPU-to-CPU texture resolve synchronization for dynamic sweat and fabric shine.",
             @"fast",
@@ -236,11 +236,11 @@ const std::vector<Section>& Sections() {
        {
            {@"texture_cache_limit", OptionType::kChoice, @"Texture Cache Limit",
             @"Restricts texture pool footprint to stay safely below iOS jetsam limits.",
-            @"384",
-            {{@"Mobile Safe (384 / 768 MB)", @"384"},
-             {@"Low-RAM (256 / 512 MB)", @"256"},
-             {@"High (512 / 1024 MB)", @"512"},
-             {@"Maximum (1024 / 2048 MB)", @"1024"}}},
+            @"1024",
+            {{@"Recommended (1024 / 2048 MB)", @"1024"},
+             {@"Mobile Safe (512 / 1024 MB)", @"512"},
+             {@"Low-RAM (384 / 768 MB)", @"384"},
+             {@"Maximum (2048 / 3072 MB)", @"2048"}}},
            {@"pin_perf_cores", OptionType::kSwitch, @"Pin Guest Threads to Performance Cores",
             @"Prevents iOS from scheduling critical guest worker threads onto slow efficiency cores (--ios_utility_qos_guest=false).",
             @"true"},
@@ -364,12 +364,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--async_shader_compilation=") + (async_pipe ? "true" : "false"));
 
   // Texture cache limit
-  NSString* tc = s[@"texture_cache_limit"] ?: @"384";
+  NSString* tc = s[@"texture_cache_limit"] ?: @"1024";
   int tc_int = [tc intValue];
-  if (tc_int <= 0) tc_int = 384;
+  if (tc_int <= 0) tc_int = 1024;
   args.push_back(std::string("--texture_cache_memory_limit_soft=") + std::to_string(tc_int));
   args.push_back(std::string("--texture_cache_memory_limit_hard=") + std::to_string(tc_int * 2));
-  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=128"));
+  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=512"));
 
   // Log level
   NSString* ll = s[@"log_level"] ?: @"info";
@@ -393,14 +393,16 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--fnc_tp_fov=") + (s[@"fnc_tp_fov"] ?: @"0.8").UTF8String);
   args.push_back(std::string("--fnc_tp_smooth=") + (s[@"fnc_tp_smooth"] ?: @"0.85").UTF8String);
 
+  // Render target path
+  NSString* rtp = s[@"render_target_path"] ?: @"fsi";
+  args.push_back(std::string("--render_target_path_vulkan=") + rtp.UTF8String);
+
   // GPU invalid fetch constant bypass and rendering fixes
   args.push_back("--gpu_plugin=xenos");
   args.push_back("--gpu_backend=vulkan");
-  args.push_back("--render_target_path_vulkan=fbo");
-  args.push_back("--gpu_allow_invalid_fetch_constants=false");
-  args.push_back("--vulkan_readback_resolve=true");
-  args.push_back("--ios_readback_max_kb=0");
+  args.push_back("--gpu_allow_invalid_fetch_constants=true");
   args.push_back("--gpu_sin_msaa=true");
+  args.push_back("--ios_readback_max_kb=64");
 
   return args;
 }
@@ -684,72 +686,117 @@ using namespace fnc::launcher;
 
 - (void)tableView:(UITableView*)tableView didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
   [tableView deselectRowAtIndexPath:indexPath animated:YES];
-  auto vis = [self visibleSections];
-  const auto& opt = vis[indexPath.section].options[indexPath.row];
+  @try {
+    auto vis = [self visibleSections];
+    if (indexPath.section >= vis.size() || indexPath.row >= vis[indexPath.section].options.size()) {
+      return;
+    }
+    const auto& opt = vis[indexPath.section].options[indexPath.row];
+    NSString* optKey = [opt.key copy];
+    NSString* optTitle = [opt.title copy];
+    NSString* optSummary = [opt.summary copy];
+    UITableViewCell* cell = [tableView cellForRowAtIndexPath:indexPath];
 
-  if ([opt.key isEqualToString:@"game_source"]) {
-    auto sources = FindGameSources(_documentsPath);
-    UIAlertController* sheet = [UIAlertController alertControllerWithTitle:@"Select Game Source"
-                                                                   message:@"Detected Xbox 360 Fight Night Champion disc images or folders:"
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    if (sheet.popoverPresentationController) {
-      UITableViewCell* cell = [tableView cellForRowAtIndexPath:indexPath];
-      sheet.popoverPresentationController.sourceView = cell ?: self.view;
-      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-    }
-    for (const auto& src : sources) {
-      NSString* name = [NSString stringWithUTF8String:src.filename().string().c_str()];
-      [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
-        self->_selectedSource = src;
-        self->_settings[@"game_source"] = [NSString stringWithUTF8String:src.string().c_str()];
-        WriteSettings(self->_documentsPath, self->_settings);
-        [self.tableView reloadData];
-      }]];
-    }
-    if (sources.empty()) {
-      sheet.message = @"No game disc images or extracted folders found in Documents.\n"
-                      @"Use 'Choose ISO Image...' below or copy your retail game to Documents.";
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:sheet animated:YES completion:nil];
-  } else if (opt.type == OptionType::kChoice) {
-    UIAlertController* sheet = [UIAlertController alertControllerWithTitle:opt.title
-                                                                   message:opt.summary
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    if (sheet.popoverPresentationController) {
-      UITableViewCell* cell = [tableView cellForRowAtIndexPath:indexPath];
-      sheet.popoverPresentationController.sourceView = cell ?: self.view;
-      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
-    }
-    fs::path docs = _documentsPath;
-    for (const auto& c : opt.choices) {
-      [sheet addAction:[UIAlertAction actionWithTitle:c.title style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
-        self->_settings[opt.key] = c.value;
-        WriteSettings(docs, self->_settings);
-        if ([opt.key isEqualToString:@"boxing_style"]) {
-          fnc::touch::SetBoxingStyle([c.value intValue]);
+    if ([optKey isEqualToString:@"game_source"]) {
+      auto sources = FindGameSources(_documentsPath);
+      UIAlertController* sheet = [UIAlertController alertControllerWithTitle:@"Select Game Source"
+                                                                     message:@"Detected Xbox 360 Fight Night Champion disc images or folders:"
+                                                              preferredStyle:UIAlertControllerStyleActionSheet];
+      if (sheet.popoverPresentationController) {
+        sheet.popoverPresentationController.sourceView = cell ?: self.view;
+        sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+      }
+      for (const auto& src : sources) {
+        NSString* name = [NSString stringWithUTF8String:src.filename().string().c_str()];
+        NSString* srcStr = [NSString stringWithUTF8String:src.string().c_str()];
+        fs::path srcPath = src;
+        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
+          @try {
+            self->_selectedSource = srcPath;
+            self->_settings[@"game_source"] = srcStr;
+            WriteSettings(self->_documentsPath, self->_settings);
+            [self.tableView reloadData];
+          } @catch (NSException* e) {
+            NSLog(@"[Launcher] Exception in game source selection: %@", e);
+          }
+        }]];
+      }
+      if (sources.empty()) {
+        sheet.message = @"No game disc images or extracted folders found in Documents.\n"
+                        @"Use 'Choose ISO Image...' below or copy your retail game to Documents.";
+      }
+      [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+      [self presentViewController:sheet animated:YES completion:nil];
+    } else if (opt.type == OptionType::kChoice) {
+      UIAlertController* sheet = [UIAlertController alertControllerWithTitle:optTitle
+                                                                     message:optSummary
+                                                              preferredStyle:UIAlertControllerStyleActionSheet];
+      if (sheet.popoverPresentationController) {
+        sheet.popoverPresentationController.sourceView = cell ?: self.view;
+        sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+      }
+      fs::path docs = _documentsPath;
+      for (const auto& c : opt.choices) {
+        NSString* cTitle = [c.title copy];
+        NSString* cVal = [c.value copy];
+        [sheet addAction:[UIAlertAction actionWithTitle:cTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
+          @try {
+            if (optKey && cVal) {
+              self->_settings[optKey] = cVal;
+              WriteSettings(docs, self->_settings);
+              if ([optKey isEqualToString:@"boxing_style"]) {
+                fnc::touch::SetBoxingStyle([cVal intValue]);
+              }
+              [self.tableView reloadData];
+            }
+          } @catch (NSException* e) {
+            NSLog(@"[Launcher] Exception in choice selection: %@", e);
+          }
+        }]];
+      }
+      [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+      [self presentViewController:sheet animated:YES completion:nil];
+    } else if ([optKey isEqualToString:@"choose_iso"]) {
+      UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[[UTType typeWithFilenameExtension:@"iso"]]];
+      picker.delegate = self;
+      if (picker.popoverPresentationController) {
+        picker.popoverPresentationController.sourceView = cell ?: self.view;
+        picker.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+      }
+      [self presentViewController:picker animated:YES completion:nil];
+    } else if ([optKey isEqualToString:@"choose_folder"]) {
+      UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
+      picker.delegate = self;
+      if (picker.popoverPresentationController) {
+        picker.popoverPresentationController.sourceView = cell ?: self.view;
+        picker.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+      }
+      [self presentViewController:picker animated:YES completion:nil];
+    } else if ([optKey isEqualToString:@"save_manager"]) {
+      UIViewController* sm = fnc::saves::MakeSaveManager(_documentsPath);
+      if (sm) {
+        if (sm.popoverPresentationController) {
+          sm.popoverPresentationController.sourceView = cell ?: self.view;
+          sm.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
         }
-        [self.tableView reloadData];
-      }]];
+        [self presentViewController:sm animated:YES completion:nil];
+      }
+    } else if ([optKey isEqualToString:@"install_dlc"]) {
+      fnc::saves::ShowDlcInstaller(self, _documentsPath);
+    } else if ([optKey isEqualToString:@"customize_touch"]) {
+      UIViewController* le = fnc::touch::MakeLayoutEditor();
+      if (le) {
+        if (le.popoverPresentationController) {
+          le.popoverPresentationController.sourceView = cell ?: self.view;
+          le.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+        }
+        [self presentViewController:le animated:YES completion:nil];
+      }
+    } else if ([optKey isEqualToString:@"export_logs"]) {
+      [self exportLogsZip];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:sheet animated:YES completion:nil];
-  } else if ([opt.key isEqualToString:@"choose_iso"]) {
-    UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[[UTType typeWithFilenameExtension:@"iso"]]];
-    picker.delegate = self;
-    [self presentViewController:picker animated:YES completion:nil];
-  } else if ([opt.key isEqualToString:@"choose_folder"]) {
-    UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
-    picker.delegate = self;
-    [self presentViewController:picker animated:YES completion:nil];
-  } else if ([opt.key isEqualToString:@"save_manager"]) {
-    [self presentViewController:fnc::saves::MakeSaveManager(_documentsPath) animated:YES completion:nil];
-  } else if ([opt.key isEqualToString:@"install_dlc"]) {
-    fnc::saves::ShowDlcInstaller(self, _documentsPath);
-  } else if ([opt.key isEqualToString:@"customize_touch"]) {
-    [self presentViewController:fnc::touch::MakeLayoutEditor() animated:YES completion:nil];
-  } else if ([opt.key isEqualToString:@"export_logs"]) {
-    [self exportLogsZip];
+  } @catch (NSException* ex) {
+    NSLog(@"[Launcher] Uncaught exception in didSelectRowAtIndexPath: %@", ex);
   }
 }
 

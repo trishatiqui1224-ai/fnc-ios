@@ -42,13 +42,59 @@ CACHE_ANCHOR = r'''  switch (fetch.type) {
       return;
   }'''
 
-CACHE_NEW = r'''  // LOCAL PATCH: If fetch constant type is not kTexture, leave key_out invalid and return.
-  // This causes DemandTextures to safely call binding.Reset() (mapping to the dummy null texture)
-  // instead of sampling uninitialized memory (which causes green vertical rendering artifacts in YCbCr)
-  // and silences the warning flood.
+CACHE_NEW = r'''  // LOCAL PATCH - Fight Night Champion: Allow fetch constants marked type 0/1 if they have a
+  // valid physical address and size (e.g. 10-frame VP6 video chroma ring buffer & 1280x720 post-process targets).
   if (fetch.type != xenos::FetchConstantType::kTexture) {
-    return;
+    if ((fetch.dword_1 & 0xFFFFF000u) != 0 && fetch.dword_2 != 0) {
+      // Valid texture descriptors marked type 0/1 by game: allow parsing as kTexture.
+    } else {
+      return;
+    }
   }'''
+
+VIDEO_RING_ANCHOR = r'''      if (key_changed) {
+        binding.texture = FindOrCreateTexture(binding.key);
+        load_unsigned_data = true;
+      }
+      binding.texture_signed = nullptr;'''
+
+VIDEO_RING_NEW = r'''      if (key_changed) {
+        binding.texture = FindOrCreateTexture(binding.key);
+        load_unsigned_data = true;
+      }
+      // LOCAL PATCH - Fight Night Champion: Invalidate linear k_8 video ring-buffer textures
+      // so fresh CPU-decoded YUV frames are always re-uploaded from guest RAM on wrap-around
+      if (!fetch.tiled && (xenos::TextureFormat(fetch.format) == xenos::TextureFormat::k_8)) {
+        if (!binding.texture) {
+          binding.texture = FindOrCreateTexture(binding.key);
+        }
+        load_unsigned_data = true;
+      }
+      binding.texture_signed = nullptr;'''
+
+# 2. In-place Fetch Constant Promotion in GPU Command Processor (src/graphics/vulkan/command_processor.cpp)
+FETCH_PROMO_ANCHOR = r'''  uint32_t used_texture_mask =
+      vertex_shader->GetUsedTextureMaskAfterTranslation() |
+      (pixel_shader != nullptr ? pixel_shader->GetUsedTextureMaskAfterTranslation() : 0);
+  texture_cache_->RequestTextures(used_texture_mask);'''
+
+FETCH_PROMO_NEW = r'''  // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
+  // Promote valid uninitialized texture fetch constants (type == 0) in-place in register file
+  // so descriptor sets, samplers, and texture cache all recognize them as kTexture (type 2)
+  for (uint32_t i = 0; i < 32; ++i) {
+    uint32_t base_reg = XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + i * 6;
+    uint32_t dword_0 = register_file_->values[base_reg + 0];
+    uint32_t dword_1 = register_file_->values[base_reg + 1];
+    uint32_t dword_2 = register_file_->values[base_reg + 2];
+    if ((dword_0 & 0x3u) == 0 && (dword_1 & 0xFFFFF000u) != 0 && dword_2 != 0) {
+      register_file_->values[base_reg + 0] = (dword_0 & ~0x3u) | 0x2u;
+    }
+  }
+
+  uint32_t used_texture_mask =
+      vertex_shader->GetUsedTextureMaskAfterTranslation() |
+      (pixel_shader != nullptr ? pixel_shader->GetUsedTextureMaskAfterTranslation() : 0);
+  texture_cache_->RequestTextures(used_texture_mask);'''
 
 # 2. SetupVfs (src/system/runtime.cpp)
 VFS_ANCHOR = r'''  // NOTE: Do NOT register a device for cache: paths
@@ -137,7 +183,9 @@ DISMOUNT_NEW = r'''u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
 }'''
 
 BLOCKS = [
-    ("src/graphics/pipeline/texture/cache.cpp", "ignore invalid fetch constants and reset binding to dummy texture", CACHE_ANCHOR, CACHE_NEW),
+    ("src/graphics/pipeline/texture/cache.cpp", "allow fetch constants marked type 0/1 with valid address and size", CACHE_ANCHOR, CACHE_NEW),
+    ("src/graphics/pipeline/texture/cache.cpp", "invalidate linear k_8 video ring-buffer textures on wrap-around", VIDEO_RING_ANCHOR, VIDEO_RING_NEW),
+    ("src/graphics/vulkan/command_processor.cpp", "promote valid type 0 fetch constants in-place in register file", FETCH_PROMO_ANCHOR, FETCH_PROMO_NEW),
     ("src/system/runtime.cpp", "mount writable cache and scratch HostPathDevices", VFS_ANCHOR, VFS_NEW),
     ("src/filesystem/virtual_file_system.cpp", "allow opening root volume directories", OPEN_ANCHOR, OPEN_NEW),
     ("src/kernel/xboxkrnl/xboxkrnl_io_info.cpp", "return FILE_DEVICE_DISK for XFileFsDeviceInformation", DEVINFO_ANCHOR, DEVINFO_NEW),

@@ -216,11 +216,10 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--ios_iso_stream=true",
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
-      "--render_target_path_vulkan=fbo",
+      "--render_target_path_vulkan=fsi",
       "--clear_memory_page_state=true",
-      "--vulkan_readback_resolve=true",
       "--readback_resolve=fast",
-      "--ios_readback_max_kb=0",
+      "--ios_readback_max_kb=64",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -229,15 +228,15 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--mnk_mode=false",
       "--fullscreen=true",
       "--resolution_scale=1",
-      "--async_shader_compilation=false",
-      "--texture_cache_memory_limit_soft=384",
-      "--texture_cache_memory_limit_hard=768",
-      "--texture_cache_memory_limit_render_to_texture=128",
+      "--async_shader_compilation=true",
+      "--texture_cache_memory_limit_soft=1024",
+      "--texture_cache_memory_limit_hard=2048",
+      "--texture_cache_memory_limit_render_to_texture=512",
       "--audio_maxqframes=64",
       "--present_letterbox=true",
       "--mount_scratch=true",
       "--mount_cache=true",
-      "--gpu_allow_invalid_fetch_constants=false",
+      "--gpu_allow_invalid_fetch_constants=true",
   };
 
   // Merge settings from Launcher
@@ -255,16 +254,14 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--ios_iso_stream=true");
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
-  SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=true");
-  SetArgument(args, "--gpu_allow_invalid_fetch_constants=false");
-  SetArgument(args, "--vulkan_readback_resolve=true");
+  SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
   SetArgument(args, "--readback_resolve=fast");
-  SetArgument(args, "--ios_readback_max_kb=0");
-  SetArgument(args, "--async_shader_compilation=false");
-  SetArgument(args, "--texture_cache_memory_limit_soft=384");
-  SetArgument(args, "--texture_cache_memory_limit_hard=768");
-  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=128");
+  SetArgument(args, "--ios_readback_max_kb=64");
+  SetArgument(args, "--async_shader_compilation=true");
+  SetArgument(args, "--texture_cache_memory_limit_soft=1024");
+  SetArgument(args, "--texture_cache_memory_limit_hard=2048");
+  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=512");
   SetArgument(args, "--gpu_sin_msaa=true");
 
   return args;

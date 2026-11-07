@@ -172,6 +172,17 @@ const std::vector<Section>& Sections() {
            {@"clear_memory_page_state", OptionType::kSwitch, @"Clear memory page state",
             @"Prevents warped boxer trunks, stretched gloves, and detached mesh vertices (Recommended ON).",
             @"true"},
+           {@"render_target_path", OptionType::kChoice, @"Render target path (Vulkan)",
+            @"FBO enables explicit frame buffer object tile emulation to prevent black rendering blocks.",
+            @"fbo",
+            {{@"FBO (Recommended for Fight Night)", @"fbo"},
+             {@"Native", @"native"}}},
+           {@"texture_cache_limit", OptionType::kChoice, @"Texture cache limit (Memory)",
+            @"Limits texture streaming footprint to 1024/2048 MB to prevent green tearing lines on mobile GPUs.",
+            @"1024",
+            {{@"1024 MB Soft / 2048 MB Hard (Recommended)", @"1024"},
+             {@"512 MB Soft / 1024 MB Hard", @"512"},
+             {@"2048 MB Soft / 4096 MB Hard", @"2048"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Reflective Trunks/Sweat)",
             @"Controls GPU-to-CPU texture resolve synchronization for dynamic sweat and fabric shine.",
             @"fast",
@@ -374,8 +385,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--fnc_tp_fov=") + (s[@"fnc_tp_fov"] ?: @"0.8").UTF8String);
   args.push_back(std::string("--fnc_tp_smooth=") + (s[@"fnc_tp_smooth"] ?: @"0.85").UTF8String);
 
-  // GPU invalid fetch constant bypass
+  // GPU invalid fetch constant bypass and rendering fixes
+  args.push_back("--gpu_plugin=xenos");
+  args.push_back("--gpu_backend=vulkan");
+  args.push_back("--render_target_path_vulkan=fbo");
   args.push_back("--gpu_allow_invalid_fetch_constants=true");
+  args.push_back("--gpu_sin_msaa=true");
 
   return args;
 }

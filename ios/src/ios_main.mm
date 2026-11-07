@@ -121,6 +121,16 @@ void SetupFightNightRuntimeDirectories(const fs::path& docs, const fs::path& cac
   // 3. Instant KO Replays mount scratch:/ cache:/
   fs::create_directories(docs / "data" / "cache", ec);
 
+  // 3b. Seed FNCReborn.toml into Documents/config and Documents/rex_data
+  fs::path destToml = docs / "config" / "FNCReborn.toml";
+  if (!fs::exists(destToml, ec)) {
+    NSString* bundledToml = [[NSBundle mainBundle] pathForResource:@"FNCReborn" ofType:@"toml"];
+    if (bundledToml && [[NSFileManager defaultManager] fileExistsAtPath:bundledToml]) {
+      fs::copy_file(fs::path(bundledToml.UTF8String), destToml, fs::copy_options::overwrite_existing, ec);
+      fs::copy_file(fs::path(bundledToml.UTF8String), docs / "rex_data" / "config.toml", fs::copy_options::overwrite_existing, ec);
+    }
+  }
+
   // 4. Redirect XDG & Temp env vars so POSIX/XDG libraries never touch ~/.local, ~/.cache, ~/.config
   setenv("XDG_DATA_HOME", (docs / "rex_data").c_str(), 1);
   setenv("XDG_CACHE_HOME", (caches).c_str(), 1);
@@ -215,6 +225,8 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=true");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
+  SetArgument(args, "--texture_cache_memory_limit_soft=1024");
+  SetArgument(args, "--texture_cache_memory_limit_hard=2048");
   SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--gpu_sin_msaa=true");
 

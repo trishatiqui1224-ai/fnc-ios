@@ -1,46 +1,44 @@
-# FNC Reborn settings. Setup copies this file to dist\FNCReborn.toml once and
-# never overwrites it, so your changes are kept. The in-game Settings > DISPLAY
-# tab changes some of these for you.
+# FNC Reborn settings for iOS (Xbox 360 Title ID: 45410915).
+# Optimized for Metal/Vulkan translator layer (librexgpu-xenos).
 
 gpu_plugin = "xenos"
-gpu_backend = "d3d12"
+gpu_backend = "vulkan"
+render_target_path_vulkan = "fbo"
 log_level = "info"
-log_file = "FNCReborn.log"
+log_file = "fnc.log"
 
-# Frame rate cap: 30 (original), 60, 120 or 144.
+# Frame rate cap: 30 (original console), 60 (smooth default), 120 (Apple ProMotion)
 fnc_frame_rate = 60
 vsync = false
-fullscreen = true          # F11 switches between fullscreen and window
-resolution_scale = 1       # 1 = 720p, 2 = 1440p internal resolution
+fullscreen = true
+resolution_scale = 1
 swap_post_effect = "fxaa"
 
-# Graphics fixes Fight Night needs (leave these alone).
+# Graphics & Rendering fixes for Fight Night Champion
 gpu_allow_invalid_fetch_constants = true
-render_target_path_d3d12 = "rtv"
+clear_memory_page_state = true
 use_fuzzy_alpha_epsilon = true
 gamma_render_target_as_unorm16 = true
 native_2x_msaa = false
-d3d12_readback_resolve = false
-readback_resolve = "smart"
-readback_resolve_smart_skip_steady = true
-primitive_processor_cache_min_indices = 1000000
+readback_resolve = "fast"
+gpu_sin_msaa = true
 
-# Texture cache in MB. On a graphics card with 4 GB or less, try 1024 / 2048.
-texture_cache_memory_limit_soft = 4096
-texture_cache_memory_limit_hard = 6144
+# Texture cache limits in MB for iOS unified memory:
+# Soft limit = 1024 MB, Hard limit = 2048 MB to prevent texture streaming corruption.
+texture_cache_memory_limit_soft = 1024
+texture_cache_memory_limit_hard = 2048
 
-# Player camera: Back on the controller (or F2) switches between the TV camera
-# and a camera behind your boxer. Restart the game after changing these.
+# Camera & controls
 fnc_fp_enable = true
-fnc_view_boxer = 0          # set 1 if the camera follows your opponent
+fnc_view_boxer = 0
 fnc_view_first_person = false
-fnc_tp_back = 8.0           # distance behind your head, feet
-fnc_tp_height = 1.8         # height above your head, feet
-fnc_tp_side = 1.5           # over-the-shoulder offset, feet (negative = other shoulder)
-fnc_tp_fov = 0.8            # field of view; the TV camera uses about 0.5
-fnc_tp_look_between = 0.65  # aim point: 0 = your head, 1 = opponent's head
-fnc_tp_smooth = 0.85        # 0 = rigid, 0.95 = very floaty
-# First person (only with fnc_view_first_person = true)
+fnc_tp_back = 8.0
+fnc_tp_height = 1.8
+fnc_tp_side = 1.5
+fnc_tp_fov = 0.8
+fnc_tp_look_between = 0.65
+fnc_tp_smooth = 0.85
+
 fnc_fp_fov = 1.0
 fnc_fp_forward = 0.35
 fnc_fp_up = 0.05

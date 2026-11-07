@@ -4,7 +4,7 @@
 gpu_plugin = "xenos"
 gpu_backend = "vulkan"
 render_target_path_vulkan = "fbo"
-log_level = "error"
+log_level = "info"
 log_file = "fnc.log"
 async_shader_compilation = false
 
@@ -16,12 +16,14 @@ resolution_scale = 1
 swap_post_effect = "fxaa"
 
 # Graphics & Rendering fixes for Fight Night Champion
-gpu_allow_invalid_fetch_constants = true
+gpu_allow_invalid_fetch_constants = false
 clear_memory_page_state = true
 use_fuzzy_alpha_epsilon = true
 gamma_render_target_as_unorm16 = true
 native_2x_msaa = false
 readback_resolve = "fast"
+vulkan_readback_resolve = true
+ios_readback_max_kb = 0
 gpu_sin_msaa = true
 
 # Texture cache limits in MB for iOS unified memory:

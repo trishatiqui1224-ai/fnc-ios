@@ -249,8 +249,8 @@ const std::vector<Section>& Sections() {
        {
            {@"log_level", OptionType::kChoice, @"Log Level",
             @"Logging verbosity written to Documents/logs/fnc.log.",
-            @"error",
-            {{@"Error Only (Default)", @"error"}, {@"Info", @"info"}, {@"Debug (Verbose)", @"debug"}}},
+            @"info",
+            {{@"Info (Default)", @"info"}, {@"Error Only", @"error"}, {@"Debug (Verbose)", @"debug"}}},
            {@"export_logs", OptionType::kAction, @"Export Logs (.zip)...",
             @"Packages boot.txt, fnc.log, settings.json, and breadcrumb crash dumps into a sharable .zip archive.",
             @""},
@@ -372,7 +372,7 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=128"));
 
   // Log level
-  NSString* ll = s[@"log_level"] ?: @"error";
+  NSString* ll = s[@"log_level"] ?: @"info";
   args.push_back(std::string("--log_level=") + ll.UTF8String);
 
   // Pin cores
@@ -397,7 +397,9 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back("--gpu_plugin=xenos");
   args.push_back("--gpu_backend=vulkan");
   args.push_back("--render_target_path_vulkan=fbo");
-  args.push_back("--gpu_allow_invalid_fetch_constants=true");
+  args.push_back("--gpu_allow_invalid_fetch_constants=false");
+  args.push_back("--vulkan_readback_resolve=true");
+  args.push_back("--ios_readback_max_kb=0");
   args.push_back("--gpu_sin_msaa=true");
 
   return args;

@@ -211,14 +211,16 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--user_data_root=" + (docs / "rex_data").string(),
       "--cache_root=" + (caches / "rexglue").string(),
       "--log_file=" + (docs / "logs" / "fnc.log").string(),
-      "--log_level=error",
+      "--log_level=info",
+      "--log_flush_interval=1",
       "--ios_iso_stream=true",
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
       "--render_target_path_vulkan=fbo",
       "--clear_memory_page_state=true",
+      "--vulkan_readback_resolve=true",
       "--readback_resolve=fast",
-      "--ios_readback_max_kb=64",
+      "--ios_readback_max_kb=0",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -235,7 +237,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--present_letterbox=true",
       "--mount_scratch=true",
       "--mount_cache=true",
-      "--gpu_allow_invalid_fetch_constants=true",
+      "--gpu_allow_invalid_fetch_constants=false",
   };
 
   // Merge settings from Launcher
@@ -249,18 +251,20 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--user_data_root=" + (docs / "rex_data").string());
   SetArgument(args, "--cache_root=" + (caches / "rexglue").string());
   SetArgument(args, "--log_file=" + (docs / "logs" / "fnc.log").string());
-  SetArgument(args, "--log_level=error");
+  SetArgument(args, "--log_level=info");
   SetArgument(args, "--ios_iso_stream=true");
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
   SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=true");
-  SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
+  SetArgument(args, "--gpu_allow_invalid_fetch_constants=false");
+  SetArgument(args, "--vulkan_readback_resolve=true");
+  SetArgument(args, "--readback_resolve=fast");
+  SetArgument(args, "--ios_readback_max_kb=0");
   SetArgument(args, "--async_shader_compilation=false");
   SetArgument(args, "--texture_cache_memory_limit_soft=384");
   SetArgument(args, "--texture_cache_memory_limit_hard=768");
   SetArgument(args, "--texture_cache_memory_limit_render_to_texture=128");
-  SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--gpu_sin_msaa=true");
 
   return args;
@@ -285,10 +289,17 @@ int main(int argc, char* argv[]) {
     // Open early crash & boot trace before doing any startup work
     std::error_code logDirError;
     fs::create_directories(docs / "logs", logDirError);
-    // Truncate/remove old fnc.log so previous session warnings don't block current run diagnostics
-    fs::remove(docs / "logs" / "fnc.log", logDirError);
+    chmod((docs / "logs").c_str(), 0777);
     fnc::boot::Open((docs / "logs" / "boot.txt").string());
     fnc::boot::SetLogFilePath((docs / "logs" / "fnc.log").string());
+
+    // Ensure fnc.log exists with write permissions and has an initial header so it is never 0 KB
+    FILE* earlyFnc = std::fopen((docs / "logs" / "fnc.log").c_str(), "w");
+    if (earlyFnc) {
+      std::fprintf(earlyFnc, "[init] FNC Reborn iOS session started (log_level=info)\n");
+      std::fflush(earlyFnc);
+      std::fclose(earlyFnc);
+    }
 
     auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     char timebuf[64];
@@ -338,9 +349,11 @@ int main(int argc, char* argv[]) {
     rex::InitLoggingEarly();
     rex::InitLogging((docs / "logs" / "fnc.log").c_str());
     if (auto logger = spdlog::default_logger()) {
-      logger->flush_on(spdlog::level::info);
+      logger->set_level(spdlog::level::info);
+      logger->flush_on(spdlog::level::trace);
     }
-    spdlog::flush_every(std::chrono::seconds(1));
+    spdlog::flush_every(std::chrono::milliseconds(250));
+    rex::FlushLogging();
 
     // Initialize SDL Context
     fnc::boot::Trace("game: initializing the SDL context");

@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from patch_engine import run  # noqa: E402
 
 # 1. Texture Cache (src/graphics/pipeline/texture/cache.cpp)
-CACHE_ANCHOR = '''  switch (fetch.type) {
+CACHE_ANCHOR = r'''  switch (fetch.type) {
     case xenos::FetchConstantType::kTexture:
       break;
     case xenos::FetchConstantType::kInvalidTexture:
@@ -29,7 +29,7 @@ CACHE_ANCHOR = '''  switch (fetch.type) {
       }
       REXGPU_WARN(
           "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
-          "has \\"invalid\\" type! This is incorrect behavior, but you can try "
+          "has \"invalid\" type! This is incorrect behavior, but you can try "
           "bypassing this by launching Xenia with "
           "--gpu_allow_invalid_fetch_constants=true.",
           fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
@@ -42,7 +42,7 @@ CACHE_ANCHOR = '''  switch (fetch.type) {
       return;
   }'''
 
-CACHE_NEW = '''  switch (fetch.type) {
+CACHE_NEW = r'''  switch (fetch.type) {
     case xenos::FetchConstantType::kTexture:
       break;
     case xenos::FetchConstantType::kInvalidTexture:
@@ -55,7 +55,7 @@ CACHE_NEW = '''  switch (fetch.type) {
       }
       REXGPU_WARN(
           "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
-          "has \\"invalid\\" type! This is incorrect behavior, but you can try "
+          "has \"invalid\" type! This is incorrect behavior, but you can try "
           "bypassing this by launching Xenia with "
           "--gpu_allow_invalid_fetch_constants=true.",
           fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
@@ -72,14 +72,14 @@ CACHE_NEW = '''  switch (fetch.type) {
   }'''
 
 # 2. SetupVfs (src/system/runtime.cpp)
-VFS_ANCHOR = '''  // NOTE: Do NOT register a device for cache: paths
+VFS_ANCHOR = r'''  // NOTE: Do NOT register a device for cache: paths
   // Games handle "device not found" gracefully but don't handle actual device
   // errors (like NAME_COLLISION) well. Let cache: fail cleanly.
 
   return true;'''
 
-VFS_NEW = '''  // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
-  // Mount writable HostPathDevice for cache:\\ and scratch:\\ partitions so
+VFS_NEW = r'''  // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
+  // Mount writable HostPathDevice for cache:\ and scratch:\ partitions so
   // XMountUtilityDrive and Instant KO Replays do not fail or freeze.
   std::filesystem::path cache_root_dir = cache_root_.empty() ? (game_data_root_ / "cache") : cache_root_;
   std::filesystem::path cache_host_dir = cache_root_dir / "cache_drive";
@@ -110,13 +110,13 @@ VFS_NEW = '''  // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
   return true;'''
 
 # 3. OpenFile (src/filesystem/virtual_file_system.cpp)
-OPEN_ANCHOR = '''  if (entry) {
+OPEN_ANCHOR = r'''  if (entry) {
     if (entry->attributes() & kFileAttributeDirectory && is_non_directory) {
       return X_STATUS_FILE_IS_A_DIRECTORY;
     }'''
 
-OPEN_NEW = '''  if (entry) {
-    // LOCAL PATCH: Allow opening root volume directories ("D:\\", "cache:\\")
+OPEN_NEW = r'''  if (entry) {
+    // LOCAL PATCH: Allow opening root volume directories ("D:\", "cache:\")
     // even when the guest omits FILE_DIRECTORY_FILE or sets FILE_NON_DIRECTORY_FILE,
     // so volume probe does not fail with 0xC00000BA:
     if (entry->attributes() & kFileAttributeDirectory && is_non_directory && !entry->name().empty()) {
@@ -124,7 +124,7 @@ OPEN_NEW = '''  if (entry) {
     }'''
 
 # 4. XFileFsDeviceInformation (src/kernel/xboxkrnl/xboxkrnl_io_info.cpp)
-DEVINFO_ANCHOR = '''    case XFileFsDeviceInformation: {
+DEVINFO_ANCHOR = r'''    case XFileFsDeviceInformation: {
       auto info = info_ptr.as<X_FILE_FS_DEVICE_INFORMATION*>();
       REXKRNL_WARN("Stub XFileFsDeviceInformation!");
       info->device_type = FILE_DEVICE_UNKNOWN;
@@ -133,22 +133,22 @@ DEVINFO_ANCHOR = '''    case XFileFsDeviceInformation: {
       break;
     }'''
 
-DEVINFO_NEW = '''    case XFileFsDeviceInformation: {
+DEVINFO_NEW = r'''    case XFileFsDeviceInformation: {
       auto info = info_ptr.as<X_FILE_FS_DEVICE_INFORMATION*>();
       // LOCAL PATCH: Return FILE_DEVICE_DISK (0x00000007) for EA Sports volume probe
-      info->device_type = 0x00000007; // FILE_DEVICE_DISK
+      info->device_type.set(static_cast<rex::system::X_FILE_DEVICE_TYPE>(0x00000007));
       info->characteristics = 0;
       out_length = sizeof(X_FILE_FS_DEVICE_INFORMATION);
       break;
     }'''
 
 # 5. IoDismountVolumeByFileHandle (src/kernel/xboxkrnl/xboxkrnl_io.cpp)
-DISMOUNT_ANCHOR = '''u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
+DISMOUNT_ANCHOR = r'''u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
   REXKRNL_WARN("IoDismountVolumeByFileHandle({:#x}) - stub", (uint32_t)handle);
   return X_STATUS_SUCCESS;
 }'''
 
-DISMOUNT_NEW = '''u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
+DISMOUNT_NEW = r'''u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
   REXKRNL_WARN("IoDismountVolumeByFileHandle({:#x}) - stub", (uint32_t)handle);
   // LOCAL PATCH: Re-ensure cache: symbolic links stay active after EA's utility drive format/dismount check
   REX_KERNEL_FS()->RegisterSymbolicLink("cache:", "\\Device\\Cache");

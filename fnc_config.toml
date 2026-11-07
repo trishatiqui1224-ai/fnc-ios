@@ -4,8 +4,9 @@
 gpu_plugin = "xenos"
 gpu_backend = "vulkan"
 render_target_path_vulkan = "fbo"
-log_level = "info"
+log_level = "error"
 log_file = "fnc.log"
+async_shader_compilation = false
 
 # Frame rate cap: 30 (original console), 60 (smooth default), 120 (Apple ProMotion)
 fnc_frame_rate = 60
@@ -24,9 +25,10 @@ readback_resolve = "fast"
 gpu_sin_msaa = true
 
 # Texture cache limits in MB for iOS unified memory:
-# Soft limit = 1024 MB, Hard limit = 2048 MB to prevent texture streaming corruption.
-texture_cache_memory_limit_soft = 1024
-texture_cache_memory_limit_hard = 2048
+# Soft limit = 384 MB, Hard limit = 768 MB to prevent Metal OOM aborts.
+texture_cache_memory_limit_soft = 384
+texture_cache_memory_limit_hard = 768
+texture_cache_memory_limit_render_to_texture = 128
 
 # Camera & controls
 fnc_fp_enable = true

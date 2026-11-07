@@ -141,7 +141,7 @@ const std::vector<Section>& Sections() {
             @"false"},
            {@"async_pipelines", OptionType::kSwitch, @"Compile pipelines in the background",
             @"Compiles GPU pipelines asynchronously on worker threads to eliminate hitching.",
-            @"true"},
+            @"false"},
        }, kTabGraphics},
       {@"DISPLAY", nil,
        {
@@ -178,11 +178,12 @@ const std::vector<Section>& Sections() {
             {{@"FBO (Recommended for Fight Night)", @"fbo"},
              {@"Native", @"native"}}},
            {@"texture_cache_limit", OptionType::kChoice, @"Texture cache limit (Memory)",
-            @"Limits texture streaming footprint to 1024/2048 MB to prevent green tearing lines on mobile GPUs.",
-            @"1024",
-            {{@"1024 MB Soft / 2048 MB Hard (Recommended)", @"1024"},
+            @"Limits texture streaming footprint to 384/768 MB to prevent Metal OOM aborts on mobile GPUs.",
+            @"384",
+            {{@"384 MB Soft / 768 MB Hard (Recommended)", @"384"},
              {@"512 MB Soft / 1024 MB Hard", @"512"},
-             {@"2048 MB Soft / 4096 MB Hard", @"2048"}}},
+             {@"256 MB Soft / 512 MB Hard", @"256"},
+             {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Reflective Trunks/Sweat)",
             @"Controls GPU-to-CPU texture resolve synchronization for dynamic sweat and fabric shine.",
             @"fast",
@@ -235,10 +236,11 @@ const std::vector<Section>& Sections() {
        {
            {@"texture_cache_limit", OptionType::kChoice, @"Texture Cache Limit",
             @"Restricts texture pool footprint to stay safely below iOS jetsam limits.",
-            @"1024",
-            {{@"Mobile Safe (1024 / 2048 MB)", @"1024"},
-             {@"Low-RAM (512 / 1024 MB)", @"512"},
-             {@"High (2048 / 3072 MB)", @"2048"}}},
+            @"384",
+            {{@"Mobile Safe (384 / 768 MB)", @"384"},
+             {@"Low-RAM (256 / 512 MB)", @"256"},
+             {@"High (512 / 1024 MB)", @"512"},
+             {@"Maximum (1024 / 2048 MB)", @"1024"}}},
            {@"pin_perf_cores", OptionType::kSwitch, @"Pin Guest Threads to Performance Cores",
             @"Prevents iOS from scheduling critical guest worker threads onto slow efficiency cores (--ios_utility_qos_guest=false).",
             @"true"},
@@ -247,8 +249,8 @@ const std::vector<Section>& Sections() {
        {
            {@"log_level", OptionType::kChoice, @"Log Level",
             @"Logging verbosity written to Documents/logs/fnc.log.",
-            @"info",
-            {{@"Info (Default)", @"info"}, {@"Debug (Verbose)", @"debug"}, {@"Error Only", @"error"}}},
+            @"error",
+            {{@"Error Only (Default)", @"error"}, {@"Info", @"info"}, {@"Debug (Verbose)", @"debug"}}},
            {@"export_logs", OptionType::kAction, @"Export Logs (.zip)...",
             @"Packages boot.txt, fnc.log, settings.json, and breadcrumb crash dumps into a sharable .zip archive.",
             @""},
@@ -362,10 +364,16 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--async_shader_compilation=") + (async_pipe ? "true" : "false"));
 
   // Texture cache limit
-  NSString* tc = s[@"texture_cache_limit"] ?: @"1024";
+  NSString* tc = s[@"texture_cache_limit"] ?: @"384";
   int tc_int = [tc intValue];
+  if (tc_int <= 0) tc_int = 384;
   args.push_back(std::string("--texture_cache_memory_limit_soft=") + std::to_string(tc_int));
   args.push_back(std::string("--texture_cache_memory_limit_hard=") + std::to_string(tc_int * 2));
+  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=128"));
+
+  // Log level
+  NSString* ll = s[@"log_level"] ?: @"error";
+  args.push_back(std::string("--log_level=") + ll.UTF8String);
 
   // Pin cores
   BOOL pin = [s[@"pin_perf_cores"] boolValue];

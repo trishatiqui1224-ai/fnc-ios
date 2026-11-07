@@ -5,6 +5,8 @@
 #import <UIKit/UIKit.h>
 
 #include <csignal>
+#include <dlfcn.h>
+#include <execinfo.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <algorithm>
@@ -53,6 +55,33 @@ static void CrashSignalHandler(int sig) {
   }
   std::fprintf(stderr, "\n[FATAL CRASH] Caught signal %d (%s)!\n", sig, sig_name);
   fnc::boot::Trace(std::string("[FATAL CRASH] Caught signal ") + std::to_string(sig) + " (" + sig_name + ")");
+
+  void* callstack[32];
+  int frames = backtrace(callstack, 32);
+  std::fprintf(stderr, "Host Callstack (%d frames):\n", frames);
+  for (int i = 0; i < frames; ++i) {
+    Dl_info info{};
+    const char* sym = "?";
+    const char* fname = "?";
+    uintptr_t saddr = 0;
+    uintptr_t fbase = 0;
+    if (dladdr(callstack[i], &info)) {
+      if (info.dli_sname) sym = info.dli_sname;
+      if (info.dli_fname) fname = info.dli_fname;
+      saddr = reinterpret_cast<uintptr_t>(info.dli_saddr);
+      fbase = reinterpret_cast<uintptr_t>(info.dli_fbase);
+    }
+    uintptr_t addr = reinterpret_cast<uintptr_t>(callstack[i]);
+    char frame_buf[512];
+    snprintf(frame_buf, sizeof(frame_buf),
+             "  [%02d] %p (%s + 0x%llX [%s + 0x%llX])",
+             i, callstack[i], fname,
+             static_cast<unsigned long long>(fbase ? (addr - fbase) : 0),
+             sym, static_cast<unsigned long long>(saddr ? (addr - saddr) : 0));
+    std::fprintf(stderr, "%s\n", frame_buf);
+    fnc::boot::Trace(frame_buf);
+  }
+
   rex::FlushLogging();
   if (auto logger = spdlog::default_logger()) {
     logger->flush();
@@ -182,7 +211,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--user_data_root=" + (docs / "rex_data").string(),
       "--cache_root=" + (caches / "rexglue").string(),
       "--log_file=" + (docs / "logs" / "fnc.log").string(),
-      "--log_level=info",
+      "--log_level=error",
       "--ios_iso_stream=true",
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
@@ -198,9 +227,10 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--mnk_mode=false",
       "--fullscreen=true",
       "--resolution_scale=1",
-      "--async_shader_compilation=true",
-      "--texture_cache_memory_limit_soft=1024",
-      "--texture_cache_memory_limit_hard=2048",
+      "--async_shader_compilation=false",
+      "--texture_cache_memory_limit_soft=384",
+      "--texture_cache_memory_limit_hard=768",
+      "--texture_cache_memory_limit_render_to_texture=128",
       "--audio_maxqframes=64",
       "--present_letterbox=true",
       "--mount_scratch=true",
@@ -219,14 +249,17 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--user_data_root=" + (docs / "rex_data").string());
   SetArgument(args, "--cache_root=" + (caches / "rexglue").string());
   SetArgument(args, "--log_file=" + (docs / "logs" / "fnc.log").string());
+  SetArgument(args, "--log_level=error");
   SetArgument(args, "--ios_iso_stream=true");
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
   SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=true");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
-  SetArgument(args, "--texture_cache_memory_limit_soft=1024");
-  SetArgument(args, "--texture_cache_memory_limit_hard=2048");
+  SetArgument(args, "--async_shader_compilation=false");
+  SetArgument(args, "--texture_cache_memory_limit_soft=384");
+  SetArgument(args, "--texture_cache_memory_limit_hard=768");
+  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=128");
   SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--gpu_sin_msaa=true");
 
@@ -252,6 +285,8 @@ int main(int argc, char* argv[]) {
     // Open early crash & boot trace before doing any startup work
     std::error_code logDirError;
     fs::create_directories(docs / "logs", logDirError);
+    // Truncate/remove old fnc.log so previous session warnings don't block current run diagnostics
+    fs::remove(docs / "logs" / "fnc.log", logDirError);
     fnc::boot::Open((docs / "logs" / "boot.txt").string());
     fnc::boot::SetLogFilePath((docs / "logs" / "fnc.log").string());
 

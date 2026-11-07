@@ -42,33 +42,12 @@ CACHE_ANCHOR = r'''  switch (fetch.type) {
       return;
   }'''
 
-CACHE_NEW = r'''  switch (fetch.type) {
-    case xenos::FetchConstantType::kTexture:
-      break;
-    case xenos::FetchConstantType::kInvalidTexture:
-      // LOCAL PATCH: Skip completely uninitialized zeroed fetch constants (address == 0, size == 0)
-      if (fetch.base_address == 0 && fetch.size_2d.width == 0 && fetch.size_2d.height == 0) {
-        return;
-      }
-      if (REXCVAR_GET(gpu_allow_invalid_fetch_constants)) {
-        break;
-      }
-      REXGPU_WARN(
-          "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
-          "has \"invalid\" type! This is incorrect behavior, but you can try "
-          "bypassing this by launching Xenia with "
-          "--gpu_allow_invalid_fetch_constants=true.",
-          fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
-      return;
-    default:
-      if (fetch.dword_0 == 0 && fetch.dword_1 == 0 && fetch.dword_2 == 0) {
-        return;
-      }
-      REXGPU_WARN(
-          "Texture fetch constant ({:08X} {:08X} {:08X} {:08X} {:08X} {:08X}) "
-          "is completely invalid!",
-          fetch.dword_0, fetch.dword_1, fetch.dword_2, fetch.dword_3, fetch.dword_4, fetch.dword_5);
-      return;
+CACHE_NEW = r'''  // LOCAL PATCH: If fetch constant type is not kTexture, leave key_out invalid and return.
+  // This causes DemandTextures to safely call binding.Reset() (mapping to the dummy null texture)
+  // instead of sampling uninitialized memory (which causes green vertical rendering artifacts in YCbCr)
+  // and silences the warning flood.
+  if (fetch.type != xenos::FetchConstantType::kTexture) {
+    return;
   }'''
 
 # 2. SetupVfs (src/system/runtime.cpp)
@@ -158,7 +137,7 @@ DISMOUNT_NEW = r'''u32 IoDismountVolumeByFileHandle_entry(u32 handle) {
 }'''
 
 BLOCKS = [
-    ("src/graphics/pipeline/texture/cache.cpp", "silence zero fetch constants & honor invalid cvar", CACHE_ANCHOR, CACHE_NEW),
+    ("src/graphics/pipeline/texture/cache.cpp", "ignore invalid fetch constants and reset binding to dummy texture", CACHE_ANCHOR, CACHE_NEW),
     ("src/system/runtime.cpp", "mount writable cache and scratch HostPathDevices", VFS_ANCHOR, VFS_NEW),
     ("src/filesystem/virtual_file_system.cpp", "allow opening root volume directories", OPEN_ANCHOR, OPEN_NEW),
     ("src/kernel/xboxkrnl/xboxkrnl_io_info.cpp", "return FILE_DEVICE_DISK for XFileFsDeviceInformation", DEVINFO_ANCHOR, DEVINFO_NEW),

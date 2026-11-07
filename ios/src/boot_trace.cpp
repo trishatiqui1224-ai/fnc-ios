@@ -22,6 +22,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <dlfcn.h>
+#include <execinfo.h>
 #include <mach-o/dyld.h>
 
 #if defined(__APPLE__) && defined(__arm64__)
@@ -81,7 +82,7 @@ void WriteBothRaw(const char* text, size_t length) {
 
 // Only async-signal-safe calls in here.
 void OnSignal(int sig, siginfo_t* info, void* context) {
-  char buf[2048];
+  char buf[8192];
   int len = 0;
 
   const char* sig_name = "?";
@@ -163,6 +164,30 @@ void OnSignal(int sig, siginfo_t* info, void* context) {
                   "  last_ppc_r3:  0x%08X\n",
                   tl_last_ppc_fn, tl_last_ppc_lr, tl_last_ppc_r3);
   len += FormatLastPPCBreadcrumbs(buf + len, sizeof(buf) - len);
+
+  void* callstack[32];
+  int frames = backtrace(callstack, 32);
+  len += snprintf(buf + len, sizeof(buf) - len, "Host Backtrace (%d frames):\n", frames);
+  for (int i = 0; i < frames && len < (int)sizeof(buf) - 256; ++i) {
+    Dl_info dlinfo{};
+    const char* sym = "?";
+    const char* dli_fname = "?";
+    uintptr_t saddr = 0;
+    uintptr_t fbase = 0;
+    if (dladdr(callstack[i], &dlinfo)) {
+      if (dlinfo.dli_sname) sym = dlinfo.dli_sname;
+      if (dlinfo.dli_fname) dli_fname = dlinfo.dli_fname;
+      saddr = reinterpret_cast<uintptr_t>(dlinfo.dli_saddr);
+      fbase = reinterpret_cast<uintptr_t>(dlinfo.dli_fbase);
+    }
+    uintptr_t addr = reinterpret_cast<uintptr_t>(callstack[i]);
+    len += snprintf(buf + len, sizeof(buf) - len,
+                    "  [%02d] %p (%s + 0x%llX [%s + 0x%llX])\n",
+                    i, callstack[i], dli_fname,
+                    static_cast<unsigned long long>(fbase ? (addr - fbase) : 0),
+                    sym, static_cast<unsigned long long>(saddr ? (addr - saddr) : 0));
+  }
+
   len += snprintf(buf + len, sizeof(buf) - len,
                   "==============================================================\n");
 

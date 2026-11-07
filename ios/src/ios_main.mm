@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+#include <csignal>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <algorithm>
@@ -18,6 +19,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <spdlog/spdlog.h>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -40,6 +42,26 @@ namespace fs = std::filesystem;
 
 extern const rex::PPCImageInfo PPCImageConfig;
 
+static void CrashSignalHandler(int sig) {
+  const char* sig_name = "UNKNOWN";
+  switch (sig) {
+    case SIGSEGV: sig_name = "SIGSEGV"; break;
+    case SIGBUS: sig_name = "SIGBUS"; break;
+    case SIGABRT: sig_name = "SIGABRT"; break;
+    case SIGILL: sig_name = "SIGILL"; break;
+    case SIGFPE: sig_name = "SIGFPE"; break;
+  }
+  std::fprintf(stderr, "\n[FATAL CRASH] Caught signal %d (%s)!\n", sig, sig_name);
+  fnc::boot::Trace(std::string("[FATAL CRASH] Caught signal ") + std::to_string(sig) + " (" + sig_name + ")");
+  rex::FlushLogging();
+  if (auto logger = spdlog::default_logger()) {
+    logger->flush();
+  }
+  std::fflush(nullptr);
+  std::signal(sig, SIG_DFL);
+  std::raise(sig);
+}
+
 namespace {
 
 fs::path DocumentsFolder() {
@@ -50,6 +72,16 @@ fs::path DocumentsFolder() {
 fs::path CachesFolder() {
   NSArray<NSString*>* paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
   return fs::path(paths.firstObject.UTF8String);
+}
+
+fs::path ApplicationSupportFolder() {
+  NSArray<NSString*>* paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+  return fs::path(paths.firstObject.UTF8String);
+}
+
+fs::path TemporaryFolder() {
+  NSString* tmp = NSTemporaryDirectory();
+  return fs::path(tmp.UTF8String);
 }
 
 void PrewarmShaderCache(const fs::path& caches) {
@@ -67,17 +99,49 @@ void PrewarmShaderCache(const fs::path& caches) {
   }
 }
 
-void SetupFightNightRuntimeDirectories(const fs::path& docs, const fs::path& caches) {
+void SetupFightNightRuntimeDirectories(const fs::path& docs, const fs::path& caches, const fs::path& app_support, const fs::path& tmp) {
   std::error_code ec;
-  // 1. Prevent EA Sports Logo multi-core freeze: content/45410915/00000002/
+  // 1. Sandbox roots
+  fs::create_directories(docs, ec);
+  fs::create_directories(docs / "logs", ec);
+  fs::create_directories(docs / "data", ec);
+  fs::create_directories(docs / "config", ec);
+  fs::create_directories(docs / "rex_data", ec);
+  fs::create_directories(caches, ec);
+  fs::create_directories(caches / "rexglue", ec);
+  fs::create_directories(caches / "rexglue" / "shaders", ec);
+  fs::create_directories(caches / "rex_scratch", ec);
+  fs::create_directories(app_support, ec);
+  fs::create_directories(tmp, ec);
+
+  // 2. Prevent EA Sports Logo multi-core freeze: content/45410915/00000002/
   fs::create_directories(docs / "rex_data" / "content" / "45410915" / "00000002", ec);
   fs::create_directories(docs / "data" / "content" / "45410915" / "00000002", ec);
 
-  // 2. Instant KO Replays mount scratch:/ cache:/
-  fs::create_directories(caches / "rex_scratch", ec);
+  // 3. Instant KO Replays mount scratch:/ cache:/
   fs::create_directories(docs / "data" / "cache", ec);
-  fs::create_directories(docs / "logs", ec);
-  fnc::boot::Trace("Runtime directories prepared: 45410915 content and scratch cache ready.");
+
+  // 4. Redirect XDG & Temp env vars so POSIX/XDG libraries never touch ~/.local, ~/.cache, ~/.config
+  setenv("XDG_DATA_HOME", (docs / "rex_data").c_str(), 1);
+  setenv("XDG_CACHE_HOME", (caches).c_str(), 1);
+  setenv("XDG_CONFIG_HOME", (docs / "config").c_str(), 1);
+  setenv("TMPDIR", tmp.c_str(), 1);
+  if (!docs.empty()) {
+    setenv("HOME", docs.parent_path().c_str(), 1);
+  }
+
+  // 5. MoltenVK queue submission & command buffer defaults for iOS
+  setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 1);
+  setenv("MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS", "1", 1);
+  setenv("MVK_CONFIG_RESUME_LOST_DEVICE", "0", 1);
+
+  // 6. SDL iOS orientation & touch hint setup
+  setenv("SDL_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight", 1);
+  SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+  SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+  SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+
+  fnc::boot::Trace("Runtime directories & environment prepared: 45410915 content, scratch cache, and XDG ready.");
 }
 
 std::string OptionName(const std::string& arg) {
@@ -141,72 +205,54 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
 
 int main(int argc, char* argv[]) {
   @autoreleasepool {
+    // 0. Register fatal signal handlers immediately
+    std::signal(SIGSEGV, CrashSignalHandler);
+    std::signal(SIGBUS, CrashSignalHandler);
+    std::signal(SIGABRT, CrashSignalHandler);
+    std::signal(SIGILL, CrashSignalHandler);
+    std::signal(SIGFPE, CrashSignalHandler);
+
     const fs::path docs = DocumentsFolder();
     const fs::path caches = CachesFolder();
+    const fs::path app_support = ApplicationSupportFolder();
+    const fs::path tmp = TemporaryFolder();
 
-    // Open the crash trace before doing any startup work. Without this call,
-    // Trace() has no file descriptor and early startup failures leave no logs.
+    // Open early crash & boot trace before doing any startup work
     std::error_code logDirError;
     fs::create_directories(docs / "logs", logDirError);
     fnc::boot::Open((docs / "logs" / "boot.txt").string());
     fnc::boot::SetLogFilePath((docs / "logs" / "fnc.log").string());
 
-    // Line 1: Immediate boot trace
     auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     char timebuf[64];
     std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
     fnc::boot::Trace(std::string("---- start, build ") + timebuf + " (Fight Night Champion iOS ARM64)");
 
-    // Initialize haptics & audio session
+    // Initialize runtime sandbox, environment, haptics & prewarmed shaders
+    SetupFightNightRuntimeDirectories(docs, caches, app_support, tmp);
     IOSHaptics_Init(true);
-    SetupFightNightRuntimeDirectories(docs, caches);
     PrewarmShaderCache(caches);
 
     // Run native dark-mode UITableViewStyleInsetGrouped 6-tab launcher
+    // Loops until a valid game source (.iso or extracted folder) is confirmed
     fnc::boot::Trace("launcher: displaying 6-tab configuration menu");
-    fs::path gameSource = fnc::launcher::Run(docs);
-
-    if (gameSource.empty()) {
-      auto sources = fnc::launcher::FindGameSources(docs);
-      if (!sources.empty()) {
-        gameSource = sources.front();
+    fs::path gameSource;
+    while (gameSource.empty()) {
+      gameSource = fnc::launcher::Run(docs);
+      if (gameSource.empty()) {
+        auto sources = fnc::launcher::FindGameSources(docs);
+        if (!sources.empty()) {
+          gameSource = sources.front();
+        }
       }
     }
-
-    if (gameSource.empty()) {
-      void (^showNoSourceAlert)(void) = ^{
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"No Game Source Detected"
-                                                                       message:@"Please place your retail Fight Night Champion .iso or extracted folder containing default.xex in the Documents folder."
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        UIWindow* keyWin = nil;
-        for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
-          if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-            UIWindowScene* winScene = (UIWindowScene*)scene;
-            for (UIWindow* w in winScene.windows) {
-              if (w.isKeyWindow) { keyWin = w; break; }
-            }
-          }
-        }
-        if (!keyWin) {
-          keyWin = [UIApplication sharedApplication].delegate.window;
-        }
-        [keyWin.rootViewController presentViewController:alert animated:YES completion:nil];
-      };
-      if ([NSThread isMainThread]) {
-        showNoSourceAlert();
-      } else {
-        dispatch_sync(dispatch_get_main_queue(), showNoSourceAlert);
-      }
-      fnc::boot::Trace("FATAL: No game source found in Documents. Waiting for user files.");
-      return 1;
-    }
+    fnc::boot::Trace(std::string("launcher: selected game source: ") + gameSource.string());
 
     // Build arguments
     fnc::boot::Trace(std::string("audio: activating the session"));
     rex::audio::ios::PrepareAudioSession();
 
-    fnc::boot::Trace(std::string("game: parsing the arguments for: ") + gameSource.string());
+    fnc::boot::Trace(std::string("game: parsing arguments for: ") + gameSource.string());
     auto gameArgs = BuildGameArguments(docs, caches, gameSource);
 
     std::vector<char*> c_argv;
@@ -220,6 +266,11 @@ int main(int argc, char* argv[]) {
     auto leftovers = rex::cvar::Init(c_argc, c_argv.data());
     rex::cvar::ApplyEnvironment();
     rex::InitLoggingEarly();
+    rex::InitLogging((docs / "logs" / "fnc.log").c_str());
+    if (auto logger = spdlog::default_logger()) {
+      logger->flush_on(spdlog::level::info);
+    }
+    spdlog::flush_every(std::chrono::seconds(1));
 
     // Initialize SDL Context
     fnc::boot::Trace("game: initializing the SDL context");
@@ -252,7 +303,7 @@ int main(int argc, char* argv[]) {
     fnc::boot::Trace("game: OnInitialize (paths, log, GPU plugin, runtime, XEX)");
     const bool initialized = app->OnInitialize();
     fnc::boot::Trace(initialized ? "game: OnInitialize done, entering main loop"
-                                : "game: OnInitialize FAILED (see fncreborn.log)");
+                                : "game: OnInitialize FAILED (see fnc.log)");
 
     const int exit_code = initialized ? context.RunMainMessageLoop() : 1;
     fnc::boot::Trace("game: main loop exited with code: " + std::to_string(exit_code));

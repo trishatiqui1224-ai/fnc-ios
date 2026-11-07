@@ -382,40 +382,53 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
 using namespace fnc::launcher;
 
 // ---------------------------------------------------------------------------
+//  Launcher Navigation Controller (Handles Screen Orientations)
+// ---------------------------------------------------------------------------
+@interface FNCLauncherNavigation : UINavigationController
+@end
+
+@implementation FNCLauncherNavigation
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  if (self.presentedViewController && !self.presentedViewController.isBeingDismissed) {
+    return self.presentedViewController.supportedInterfaceOrientations;
+  }
+  return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll
+                                                                              : UIInterfaceOrientationMaskPortrait;
+}
+@end
+
+// ---------------------------------------------------------------------------
 //  Launcher View Controller (Global Scope for Objective-C)
 // ---------------------------------------------------------------------------
-@interface LauncherViewController : UITableViewController <UIDocumentPickerDelegate>
-- (instancetype)initWithDocuments:(const fs::path&)docs;
+@interface FNCLauncherController : UITableViewController <UIDocumentPickerDelegate>
+- (instancetype)initWithDocuments:(const fs::path&)docs done:(std::function<void(fs::path)>)done;
 - (std::vector<Section>)visibleSections;
 - (fs::path)selectedSource;
-- (BOOL)playTapped;
 - (void)resetSettings;
 - (void)playGame;
 - (void)tabChanged:(UISegmentedControl*)sender;
 - (void)switchToggled:(UISwitch*)sw;
 - (void)exportLogsZip;
+- (void)rescan;
 @end
 
-@implementation LauncherViewController {
+@implementation FNCLauncherController {
   fs::path _documentsPath;
   fs::path _selectedSource;
   NSMutableDictionary<NSString*, NSString*>* _settings;
   NSInteger _currentTab;
-  BOOL _playTapped;
+  std::function<void(fs::path)> _done;
 }
 
 - (fs::path)selectedSource {
   return _selectedSource;
 }
 
-- (BOOL)playTapped {
-  return _playTapped;
-}
-
-- (instancetype)initWithDocuments:(const fs::path&)docs {
+- (instancetype)initWithDocuments:(const fs::path&)docs done:(std::function<void(fs::path)>)done {
   self = [super initWithStyle:UITableViewStyleInsetGrouped];
   if (self) {
     _documentsPath = docs;
+    _done = std::move(done);
     _currentTab = kTabGame;
     _settings = ReadSettings(_documentsPath);
     self.title = @"Fight Night Champion";
@@ -424,9 +437,32 @@ using namespace fnc::launcher;
     auto sources = FindGameSources(_documentsPath);
     if (!sources.empty()) {
       _selectedSource = sources.front();
+      _settings[@"game_source"] = [NSString stringWithUTF8String:_selectedSource.string().c_str()];
+    } else {
+      NSString* savedSource = _settings[@"game_source"];
+      if (savedSource && savedSource.length > 0) {
+        fs::path p(savedSource.UTF8String);
+        std::error_code ec;
+        if (fs::exists(p, ec)) {
+          _selectedSource = p;
+        }
+      }
     }
   }
   return self;
+}
+
+- (void)dealloc {
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)rescan {
+  auto sources = FindGameSources(_documentsPath);
+  if (!sources.empty() && _selectedSource.empty()) {
+    _selectedSource = sources.front();
+    _settings[@"game_source"] = [NSString stringWithUTF8String:_selectedSource.string().c_str()];
+  }
+  [self.tableView reloadData];
 }
 
 - (void)viewDidLoad {
@@ -434,6 +470,12 @@ using namespace fnc::launcher;
   self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
   self.view.backgroundColor = [UIColor blackColor];
   self.tableView.backgroundColor = [UIColor blackColor];
+
+  // Auto-rescan when app becomes active (e.g. after adding ISO in Files app)
+  [[NSNotificationCenter defaultCenter] addObserver:self
+                                           selector:@selector(rescan)
+                                               name:UIApplicationDidBecomeActiveNotification
+                                             object:nil];
 
   // Navigation Items
   UIBarButtonItem* resetBtn = [[UIBarButtonItem alloc] initWithTitle:@"Reset" style:UIBarButtonItemStylePlain target:self action:@selector(resetSettings)];
@@ -480,7 +522,20 @@ using namespace fnc::launcher;
 }
 
 - (void)playGame {
-  _playTapped = YES;
+  [self.view endEditing:YES];
+  if (!_selectedSource.empty()) {
+    std::error_code ec;
+    if (fs::exists(_selectedSource, ec)) {
+      if (_done) _done(_selectedSource);
+      return;
+    }
+  }
+
+  UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"No Game Source Selected"
+                                                                 message:@"Please choose a retail Fight Night Champion .iso image or extracted game folder containing default.xex and databigs/."
+                                                          preferredStyle:UIAlertControllerStyleAlert];
+  [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+  [self presentViewController:alert animated:YES completion:nil];
 }
 
 // ---------------------------------------------------------------------------
@@ -564,7 +619,12 @@ using namespace fnc::launcher;
       cell.imageView.layer.masksToBounds = YES;
     }
     if (!_selectedSource.empty()) {
-      cell.detailTextLabel.text = [NSString stringWithFormat:@"Selected: %s\nTitle ID: 45410915 • Media ID: 2DC50868", _selectedSource.filename().string().c_str()];
+      cell.detailTextLabel.text = [NSString stringWithFormat:@"Selected: %s
+Title ID: 45410915 • Media ID: 2DC50868", _selectedSource.filename().string().c_str()];
+      cell.detailTextLabel.textColor = [UIColor systemGreenColor];
+    } else {
+      cell.detailTextLabel.text = @"No Game Source Selected (Tap 'Choose ISO...' or place files in Documents)";
+      cell.detailTextLabel.textColor = [UIColor systemOrangeColor];
     }
   }
 
@@ -589,10 +649,40 @@ using namespace fnc::launcher;
   auto vis = [self visibleSections];
   const auto& opt = vis[indexPath.section].options[indexPath.row];
 
-  if (opt.type == OptionType::kChoice) {
+  if ([opt.key isEqualToString:@"game_source"]) {
+    auto sources = FindGameSources(_documentsPath);
+    UIAlertController* sheet = [UIAlertController alertControllerWithTitle:@"Select Game Source"
+                                                                   message:@"Detected Xbox 360 Fight Night Champion disc images or folders:"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    if (sheet.popoverPresentationController) {
+      UITableViewCell* cell = [tableView cellForRowAtIndexPath:indexPath];
+      sheet.popoverPresentationController.sourceView = cell ?: self.view;
+      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+    }
+    for (const auto& src : sources) {
+      NSString* name = [NSString stringWithUTF8String:src.filename().string().c_str()];
+      [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
+        self->_selectedSource = src;
+        self->_settings[@"game_source"] = [NSString stringWithUTF8String:src.string().c_str()];
+        WriteSettings(self->_documentsPath, self->_settings);
+        [self.tableView reloadData];
+      }]];
+    }
+    if (sources.empty()) {
+      sheet.message = @"No game disc images or extracted folders found in Documents.
+Use 'Choose ISO Image...' below or copy your retail game to Documents.";
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+  } else if (opt.type == OptionType::kChoice) {
     UIAlertController* sheet = [UIAlertController alertControllerWithTitle:opt.title
                                                                    message:opt.summary
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
+    if (sheet.popoverPresentationController) {
+      UITableViewCell* cell = [tableView cellForRowAtIndexPath:indexPath];
+      sheet.popoverPresentationController.sourceView = cell ?: self.view;
+      sheet.popoverPresentationController.sourceRect = cell ? cell.bounds : self.view.bounds;
+    }
     fs::path docs = _documentsPath;
     for (const auto& c : opt.choices) {
       [sheet addAction:[UIAlertAction actionWithTitle:c.title style:UIAlertActionStyleDefault handler:^(UIAlertAction*) {
@@ -614,6 +704,10 @@ using namespace fnc::launcher;
     UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder]];
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
+  } else if ([opt.key isEqualToString:@"save_manager"]) {
+    [self presentViewController:fnc::saves::MakeSaveManager(_documentsPath) animated:YES completion:nil];
+  } else if ([opt.key isEqualToString:@"install_dlc"]) {
+    fnc::saves::ShowDlcInstaller(self, _documentsPath);
   } else if ([opt.key isEqualToString:@"customize_touch"]) {
     [self presentViewController:fnc::touch::MakeLayoutEditor() animated:YES completion:nil];
   } else if ([opt.key isEqualToString:@"export_logs"]) {
@@ -624,19 +718,38 @@ using namespace fnc::launcher;
 - (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
   if (urls.count > 0) {
     NSURL* url = urls.firstObject;
+    [url startAccessingSecurityScopedResource];
     _selectedSource = fs::path(url.path.UTF8String);
+    _settings[@"game_source"] = [NSString stringWithUTF8String:_selectedSource.string().c_str()];
+    WriteSettings(_documentsPath, _settings);
     [self.tableView reloadData];
   }
 }
 
 - (void)exportLogsZip {
-  fs::path logZip = _documentsPath / "FNC_Logs.zip";
-  // Export boot.txt and fnc.log
-  UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Logs Exported"
-                                                                 message:[NSString stringWithFormat:@"Diagnostic logs packaged at: %s", logZip.filename().string().c_str()]
-                                                          preferredStyle:UIAlertControllerStyleAlert];
-  [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-  [self presentViewController:alert animated:YES completion:nil];
+  fs::path logDir = _documentsPath / "logs";
+  NSMutableArray* urls = [NSMutableArray array];
+  for (const char* name : {"boot.txt", "fnc.log", "settings.json"}) {
+    fs::path p = (name[0] == 's') ? (_documentsPath / name) : (logDir / name);
+    NSString* nsPath = [NSString stringWithUTF8String:p.string().c_str()];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:nsPath]) {
+      [urls addObject:[NSURL fileURLWithPath:nsPath]];
+    }
+  }
+  if (urls.count == 0) {
+    UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"No Logs"
+                                                                   message:@"No log or diagnostic files found yet."
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+    return;
+  }
+  UIActivityViewController* act = [[UIActivityViewController alloc] initWithActivityItems:urls applicationActivities:nil];
+  if (act.popoverPresentationController) {
+    act.popoverPresentationController.sourceView = self.view;
+    act.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 1, 1);
+  }
+  [self presentViewController:act animated:YES completion:nil];
 }
 
 @end
@@ -644,44 +757,73 @@ using namespace fnc::launcher;
 namespace fnc::launcher {
 
 fs::path Run(const fs::path& documents) {
-  __block fs::path resultSource;
+  bool finished = false;
+  fs::path chosen;
   void (^showLauncherAndWait)(void) = ^{
-    UIWindow* window = nil;
-    for (UIWindowScene* scene in [UIApplication sharedApplication].connectedScenes) {
-      if ([scene isKindOfClass:[UIWindowScene class]]) {
-        window = [[UIWindow alloc] initWithWindowScene:scene];
+    FNCLauncherController* root =
+        [[FNCLauncherController alloc] initWithDocuments:documents
+                                                    done:[&](fs::path src) {
+                                                      chosen = std::move(src);
+                                                      finished = true;
+                                                    }];
+    UINavigationController* nav = [[FNCLauncherNavigation alloc] initWithRootViewController:root];
+    nav.navigationBar.prefersLargeTitles = YES;
+
+    UIWindowScene* scene = nil;
+    for (UIScene* s in UIApplication.sharedApplication.connectedScenes) {
+      if ([s isKindOfClass:UIWindowScene.class] && ((UIWindowScene*)s).screen == UIScreen.mainScreen) {
+        scene = (UIWindowScene*)s;
         break;
       }
     }
-    if (!window) {
-      window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    }
-
-    LauncherViewController* launcher = [[LauncherViewController alloc] initWithDocuments:documents];
-    UINavigationController* nav = [[UINavigationController alloc] initWithRootViewController:launcher];
-    nav.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    UIWindow* window = scene ? [[UIWindow alloc] initWithWindowScene:scene]
+                             : [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    window.windowLevel = UIWindowLevelNormal + 1.0;  // over SDL's launch screen
     window.rootViewController = nav;
     [window makeKeyAndVisible];
 
-    // Spin modal loop until Play tapped
-    while (![launcher playTapped]) {
-      [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    while (!finished) {
+      @autoreleasepool {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture];
+      }
     }
 
-    resultSource = [launcher selectedSource];
     window.hidden = YES;
     window.rootViewController = nil;
+    window = nil;
+
+    for (UIScene* s in UIApplication.sharedApplication.connectedScenes) {
+      if (![s isKindOfClass:UIWindowScene.class]) continue;
+      for (UIWindow* w in ((UIWindowScene*)s).windows) {
+        if ([w.rootViewController isKindOfClass:FNCLauncherNavigation.class]) {
+          w.hidden = YES;
+          w.rootViewController = nil;
+        } else if ([NSStringFromClass(w.rootViewController.class) hasPrefix:@"SDL"]) {
+          [w makeKeyAndVisible];
+        }
+      }
+    }
+    if (scene) {
+      for (UIWindow* w in scene.windows) {
+        [w.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
+      }
+      if (@available(iOS 16.0, *)) {
+        UIWindowSceneGeometryPreferencesIOS* prefs = [[UIWindowSceneGeometryPreferencesIOS alloc]
+            initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
+        [scene requestGeometryUpdateWithPreferences:prefs errorHandler:nil];
+      }
+    }
   };
-  // SDL invokes the application's main() on the UIKit main thread. Dispatching
-  // synchronously to the main queue from there deadlocks before the launcher
-  // can appear, so execute the UI work inline in that case.
+
+  // SDL invokes main() on the UIKit main thread. Execute inline if main thread.
   if ([NSThread isMainThread]) {
     showLauncherAndWait();
   } else {
     dispatch_sync(dispatch_get_main_queue(), showLauncherAndWait);
   }
 
-  return resultSource;
+  return chosen;
 }
 
 }  // namespace fnc::launcher

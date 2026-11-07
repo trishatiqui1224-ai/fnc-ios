@@ -276,11 +276,13 @@ void VulkanPipelineCache::NfsmwGuardarCacheVulkan() {
   if (dfn.vkGetPipelineCacheData(device, cache, &exact_size, nullptr) != VK_SUCCESS || exact_size < 32) {
     return;
   }
-  std::vector<uint8_t> datos(exact_size);
-  size_t retrieved_size = exact_size;
+  // Pad by 64 KB in case async shader threads add pipelines between calls
+  size_t alloc_size = exact_size + 64 * 1024;
+  std::vector<uint8_t> datos(alloc_size);
+  size_t retrieved_size = alloc_size;
   const VkResult resultado = dfn.vkGetPipelineCacheData(device, cache, &retrieved_size, datos.data());
   // Strictly require VK_SUCCESS. Never accept VK_INCOMPLETE or truncated data.
-  if (resultado != VK_SUCCESS || retrieved_size < 32 || retrieved_size > exact_size) {
+  if (resultado != VK_SUCCESS || retrieved_size < 32) {
     return;
   }
   datos.resize(retrieved_size);

@@ -341,6 +341,10 @@ add_custom_target(fncreborn_package ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_vkcache_src}" "${_app}/45410915.fbo.vkcache"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_metallib_out}" "${_app}/FNCShaders.metallib"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_title_icon_src}" "${_app}/title_icon_64x64.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon-1024.png" "${_app}/AppIcon-1024.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon1024x1024.png" "${_app}/AppIcon1024x1024.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon60x60@2x.png" "${_app}/AppIcon60x60@2x.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon60x60@3x.png" "${_app}/AppIcon60x60@3x.png"
     COMMAND xcrun actool "${CMAKE_CURRENT_SOURCE_DIR}/resources/Assets.xcassets"
             --compile "${_app}" --platform iphoneos
             --minimum-deployment-target "${CMAKE_OSX_DEPLOYMENT_TARGET}"

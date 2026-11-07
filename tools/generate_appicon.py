@@ -242,6 +242,16 @@ def main():
             meta["platform"] = spec["platform"]
         images_meta.append(meta)
 
+    # Also save standard bundle icons for CFBundleIcons fallback in ios/resources
+    res_dir = ROOT / "ios" / "resources"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    master.save(str(res_dir / "AppIcon-1024.png"), "PNG")
+    master.save(str(res_dir / "AppIcon1024x1024.png"), "PNG")
+    master.resize((120, 120), Image.Resampling.LANCZOS).save(str(res_dir / "AppIcon60x60@2x.png"), "PNG")
+    master.resize((180, 180), Image.Resampling.LANCZOS).save(str(res_dir / "AppIcon60x60@3x.png"), "PNG")
+    master.resize((152, 152), Image.Resampling.LANCZOS).save(str(res_dir / "AppIcon76x76@2x~ipad.png"), "PNG")
+    master.resize((167, 167), Image.Resampling.LANCZOS).save(str(res_dir / "AppIcon83.5x83.5@2x~ipad.png"), "PNG")
+
     # Also save standard AppIcon.png alias
     master.save(str(APPICONSET_DIR / "AppIcon.png"), "PNG")
 

@@ -374,6 +374,9 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--fnc_tp_fov=") + (s[@"fnc_tp_fov"] ?: @"0.8").UTF8String);
   args.push_back(std::string("--fnc_tp_smooth=") + (s[@"fnc_tp_smooth"] ?: @"0.85").UTF8String);
 
+  // GPU invalid fetch constant bypass
+  args.push_back("--gpu_allow_invalid_fetch_constants=true");
+
   return args;
 }
 

@@ -1,25 +1,17 @@
 // Fight Night Champion iOS - Touch Controls (touch_controls.mm)
 //
-// Provides two boxing control styles:
-//   1. Full Spectrum Punch Control (Flick Pad):
-//      Left virtual stick (movement/footwork) + Right 360° Punch Flick Pad with
-//      cardinal Straight/Jab calibration corridor + ergonomic ringside buttons
-//      (Block RT, Lean LT, Body LB, Power RB, Clinch LS, Push RS, Camera Back).
-//   2. Classic Xbox 360 Pad:
-//      Dual thumbsticks, face buttons (X=Jab, Y=Straight, A=Left Hook, B=Right Hook),
-//      shoulders, triggers, and D-Pad.
-//
-// Auto-hides on hardware controller connect (GCController).
-// Interactive Layout Editor and CoreHaptics punch feedback.
+// Overhauled Glassmorphic Virtual Controller with Dual Ring Mode & Menu Navigation Mode,
+// Full Spectrum Punch Control (FSPC) Right Stick Velocity Gating & Corridor Calibration,
+// Direct Touch / Swipe Navigation, and CoreHaptics Feedback.
 
 #import <GameController/GameController.h>
+#import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 
 #include <cmath>
 #include <fstream>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -31,34 +23,41 @@
 
 namespace {
 
-int g_boxing_style = 0; // 0 = Full Spectrum (Flick Pad), 1 = Classic Pad
-bool g_straight_calibration = true;
-bool g_touch_enabled = true;
-SDL_Joystick* g_virtual_pad = nullptr;
-UIView* g_overlay_view = nil;
-UILabel* g_fps_label = nil;
+// Virtual Controller State
+static SDL_Joystick* g_virtual_pad = nullptr;
+static UIView* g_overlay_container = nil;
+static UILabel* g_fps_label = nil;
+static bool g_straight_calibration = true;
+static int g_boxing_style = 0; // 0 = Full Spectrum (Flick Pad), 1 = Classic Pad
 
-// Button bit flags
-enum PadButton {
-  kBtnA = 0,
-  kBtnB = 1,
-  kBtnX = 2,
-  kBtnY = 3,
-  kBtnBack = 4,
-  kBtnGuide = 5,
-  kBtnStart = 6,
-  kBtnLS = 7,
-  kBtnRS = 8,
-  kBtnLB = 9,
-  kBtnRB = 10,
-  kBtnUp = 11,
-  kBtnDown = 12,
-  kBtnLeft = 13,
-  kBtnRight = 14,
+// SDL Gamepad Button Indices
+enum FNCButtonIndex : int {
+  kFNCButtonA          = 0,
+  kFNCButtonB          = 1,
+  kFNCButtonX          = 2,
+  kFNCButtonY          = 3,
+  kFNCButtonBack       = 4,
+  kFNCButtonGuide      = 5,
+  kFNCButtonStart      = 6,
+  kFNCButtonLStick     = 7,
+  kFNCButtonRStick     = 8,
+  kFNCButtonLB         = 9,
+  kFNCButtonRB         = 10,
+  kFNCButtonDPadUp     = 11,
+  kFNCButtonDPadDown   = 12,
+  kFNCButtonDPadLeft   = 13,
+  kFNCButtonDPadRight  = 14,
 };
 
-uint32_t g_buttons_state = 0;
-int16_t g_axes_state[6] = {0, 0, 0, 0, 0, 0};
+// SDL Gamepad Axes
+enum FNCAxisIndex : int {
+  kFNCAxisLeftX        = 0,
+  kFNCAxisLeftY        = 1,
+  kFNCAxisRightX       = 2,
+  kFNCAxisRightY       = 3,
+  kFNCAxisTriggerLeft  = 4,
+  kFNCAxisTriggerRight = 5,
+};
 
 void EnsureVirtualPad() {
   if (g_virtual_pad) return;
@@ -79,299 +78,695 @@ void EnsureVirtualPad() {
   }
 }
 
-void SetVirtualButton(PadButton btn, bool pressed) {
-  EnsureVirtualPad();
-  if (pressed) {
-    g_buttons_state |= (1 << btn);
-  } else {
-    g_buttons_state &= ~(1 << btn);
-  }
-  if (g_virtual_pad) {
-    SDL_SetJoystickVirtualButton(g_virtual_pad, static_cast<int>(btn), pressed);
-  }
-}
-
-void SetVirtualAxis(int axis_idx, int16_t value) {
-  EnsureVirtualPad();
-  if (axis_idx >= 0 && axis_idx < 6) {
-    g_axes_state[axis_idx] = value;
-    if (g_virtual_pad) {
-      SDL_SetJoystickVirtualAxis(g_virtual_pad, axis_idx, value);
-    }
-  }
-}
-
 }  // namespace
 
-// ---------------------------------------------------------------------------
-//  Virtual Stick / Flick Pad View (Global Scope for Objective-C)
-// ---------------------------------------------------------------------------
-@interface VirtualStickView : UIView
-@property(nonatomic, assign) BOOL isPunchPad;
-@property(nonatomic, assign) CGPoint value; // -1.0 to 1.0
-@property(nonatomic, strong) UIView* thumbView;
-@property(nonatomic, strong) CAShapeLayer* baseRing;
+extern "C" SDL_Joystick* FNC_GetVirtualJoystick(void) {
+  EnsureVirtualPad();
+  return g_virtual_pad;
+}
 
-- (instancetype)initWithFrame:(CGRect)frame isPunchPad:(BOOL)isPunchPad;
-- (void)updateTouch:(UITouch*)touch;
-- (void)resetThumb;
+static inline void FNC_SendButton(int button, bool pressed) {
+  EnsureVirtualPad();
+  if (g_virtual_pad && button >= 0) {
+    SDL_SetJoystickVirtualButton(g_virtual_pad, button, pressed);
+  }
+}
+
+static inline void FNC_SendAxis(int axis, Sint16 value) {
+  EnsureVirtualPad();
+  if (g_virtual_pad && axis >= 0 && axis < 6) {
+    SDL_SetJoystickVirtualAxis(g_virtual_pad, axis, value);
+  }
+}
+
+#pragma mark - Glassmorphic Button View
+
+@interface FNCGlassButton : UIControl
+@property(nonatomic, copy) NSString* titleText;
+@property(nonatomic, copy) NSString* subtitleText;
+@property(nonatomic, strong) UIColor* accentColor;
+@property(nonatomic, assign) int sdlButton;
+@property(nonatomic, assign) int sdlTriggerAxis;
+@property(nonatomic, assign) BOOL isPill;
 @end
 
-@implementation VirtualStickView
+@implementation FNCGlassButton {
+  UIVisualEffectView* _blurView;
+  UILabel* _titleLabel;
+  UILabel* _subLabel;
+  CAShapeLayer* _ringLayer;
+  UIImpactFeedbackGenerator* _haptic;
+}
 
-- (instancetype)initWithFrame:(CGRect)frame isPunchPad:(BOOL)isPunchPad {
-  self = [super initWithFrame:frame];
+- (instancetype)initWithTitle:(NSString*)title
+                     subtitle:(NSString*)subtitle
+                  accentColor:(UIColor*)accent
+                    sdlButton:(int)btn
+                  triggerAxis:(int)axis
+                       isPill:(BOOL)isPill {
+  self = [super initWithFrame:CGRectZero];
   if (self) {
-    _isPunchPad = isPunchPad;
+    _titleText = [title copy];
+    _subtitleText = [subtitle copy];
+    _accentColor = accent ?: [UIColor colorWithWhite:0.9 alpha:1.0];
+    _sdlButton = btn;
+    _sdlTriggerAxis = axis;
+    _isPill = isPill;
+    _haptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+    [_haptic prepare];
+
+    self.multipleTouchEnabled = YES;
     self.backgroundColor = [UIColor clearColor];
 
-    CGFloat radius = frame.size.width / 2.0;
-    _baseRing = [CAShapeLayer layer];
-    _baseRing.path = [UIBezierPath bezierPathWithOvalInRect:self.bounds].CGPath;
-    _baseRing.fillColor = [UIColor colorWithWhite:0.1 alpha:0.35].CGColor;
-    _baseRing.strokeColor = isPunchPad ? [UIColor colorWithRed:0.83 green:0.68 blue:0.21 alpha:0.7].CGColor
-                                       : [UIColor colorWithWhite:0.8 alpha:0.5].CGColor;
-    _baseRing.lineWidth = 2.5;
-    [self.layer addSublayer:_baseRing];
+    UIBlurEffect* blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
+    _blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
+    _blurView.userInteractionEnabled = NO;
+    _blurView.clipsToBounds = YES;
+    _blurView.alpha = 0.78;
+    [self addSubview:_blurView];
 
-    CGFloat thumbSize = frame.size.width * 0.44;
-    _thumbView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, thumbSize, thumbSize)];
-    _thumbView.center = CGPointMake(radius, radius);
-    _thumbView.backgroundColor = isPunchPad ? [UIColor colorWithRed:0.9 green:0.2 blue:0.2 alpha:0.75]
-                                            : [UIColor colorWithWhite:0.9 alpha:0.6];
-    _thumbView.layer.cornerRadius = thumbSize / 2.0;
-    _thumbView.layer.borderColor = isPunchPad ? [UIColor colorWithRed:1.0 green:0.85 blue:0.4 alpha:0.9].CGColor
-                                              : [UIColor whiteColor].CGColor;
-    _thumbView.layer.borderWidth = 2.0;
-    [self addSubview:_thumbView];
+    _ringLayer = [CAShapeLayer layer];
+    _ringLayer.fillColor = [UIColor colorWithWhite:0.08 alpha:0.35].CGColor;
+    _ringLayer.strokeColor = [_accentColor colorWithAlphaComponent:0.65].CGColor;
+    _ringLayer.lineWidth = 1.6;
+    [self.layer addSublayer:_ringLayer];
+
+    _titleLabel = [[UILabel alloc] init];
+    _titleLabel.text = _titleText;
+    _titleLabel.textColor = [UIColor whiteColor];
+    _titleLabel.font = [UIFont systemFontOfSize:(isPill ? 11.0 : 15.0) weight:UIFontWeightHeavy];
+    _titleLabel.textAlignment = NSTextAlignmentCenter;
+    [self addSubview:_titleLabel];
+
+    if (_subtitleText.length > 0) {
+      _subLabel = [[UILabel alloc] init];
+      _subLabel.text = _subtitleText;
+      _subLabel.textColor = [_accentColor colorWithAlphaComponent:0.9];
+      _subLabel.font = [UIFont systemFontOfSize:8.0 weight:UIFontWeightBold];
+      _subLabel.textAlignment = NSTextAlignmentCenter;
+      [self addSubview:_subLabel];
+    }
   }
   return self;
 }
 
-- (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-  [self handleTouch:[touches anyObject]];
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  CGFloat radius = _isPill ? (self.bounds.size.height * 0.5)
+                           : (MIN(self.bounds.size.width, self.bounds.size.height) * 0.5);
+  _blurView.frame = self.bounds;
+  _blurView.layer.cornerRadius = radius;
+
+  UIBezierPath* path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(self.bounds, 1.0, 1.0)
+                                                  cornerRadius:radius - 1.0];
+  _ringLayer.path = path.CGPath;
+  _ringLayer.frame = self.bounds;
+
+  if (_subLabel) {
+    _titleLabel.frame = CGRectMake(0, 4, self.bounds.size.width, self.bounds.size.height * 0.58);
+    _subLabel.frame = CGRectMake(0, self.bounds.size.height * 0.56, self.bounds.size.width, 12);
+  } else {
+    _titleLabel.frame = self.bounds;
+  }
 }
 
-- (void)touchesMoved:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-  [self handleTouch:[touches anyObject]];
+- (void)setPressedState:(BOOL)pressed {
+  if (pressed) {
+    [_haptic impactOccurred];
+    if (_sdlTriggerAxis >= 0) {
+      FNC_SendAxis(_sdlTriggerAxis, 32767);
+    } else if (_sdlButton >= 0) {
+      FNC_SendButton(_sdlButton, true);
+    }
+    [UIView animateWithDuration:0.06 animations:^{
+      self.transform = CGAffineTransformMakeScale(0.91, 0.91);
+      self->_ringLayer.fillColor = [self->_accentColor colorWithAlphaComponent:0.45].CGColor;
+      self->_ringLayer.strokeColor = self->_accentColor.CGColor;
+      self->_ringLayer.lineWidth = 2.4;
+    }];
+  } else {
+    if (_sdlTriggerAxis >= 0) {
+      FNC_SendAxis(_sdlTriggerAxis, 0);
+    } else if (_sdlButton >= 0) {
+      FNC_SendButton(_sdlButton, false);
+    }
+    [UIView animateWithDuration:0.12 animations:^{
+      self.transform = CGAffineTransformIdentity;
+      self->_ringLayer.fillColor = [UIColor colorWithWhite:0.08 alpha:0.35].CGColor;
+      self->_ringLayer.strokeColor = [self->_accentColor colorWithAlphaComponent:0.65].CGColor;
+      self->_ringLayer.lineWidth = 1.6;
+    }];
+  }
+}
+
+- (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+  [super touchesBegan:touches withEvent:event];
+  [self setPressedState:YES];
 }
 
 - (void)touchesEnded:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-  [self resetThumb];
+  [super touchesEnded:touches withEvent:event];
+  [self setPressedState:NO];
 }
 
 - (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
-  [self resetThumb];
+  [super touchesCancelled:touches withEvent:event];
+  [self setPressedState:NO];
 }
 
-- (void)handleTouch:(UITouch*)touch {
-  CGPoint loc = [touch locationInView:self];
-  CGFloat cx = self.bounds.size.width / 2.0;
-  CGFloat cy = self.bounds.size.height / 2.0;
-  CGFloat maxRadius = cx * 0.85;
+@end
 
-  CGFloat dx = loc.x - cx;
-  CGFloat dy = loc.y - cy;
-  CGFloat dist = std::sqrt(dx * dx + dy * dy);
+#pragma mark - Analog Thumbstick View (Footwork & Full Spectrum Punch Control)
+
+@interface FNCThumbstickView : UIView
+@property(nonatomic, assign) int axisX;
+@property(nonatomic, assign) int axisY;
+@property(nonatomic, assign) int stickClickButton;
+@property(nonatomic, copy) NSString* labelTitle;
+@property(nonatomic, strong) UIColor* themeColor;
+@property(nonatomic, assign) BOOL isFspcPunchStick;
+@end
+
+@implementation FNCThumbstickView {
+  UIVisualEffectView* _baseBlur;
+  CAShapeLayer* _baseRing;
+  UIView* _knobView;
+  UILabel* _label;
+  UITouch* _activeTouch;
+  NSTimeInterval _lastTapTime;
+  UIImpactFeedbackGenerator* _edgeHaptic;
+  BOOL _wasAtRim;
+}
+
+- (instancetype)initWithTitle:(NSString*)title
+                        axisX:(int)axX
+                        axisY:(int)axY
+                  clickButton:(int)clickBtn
+                   themeColor:(UIColor*)color
+                 isPunchStick:(BOOL)isPunch {
+  self = [super initWithFrame:CGRectZero];
+  if (self) {
+    _labelTitle = [title copy];
+    _axisX = axX;
+    _axisY = axY;
+    _stickClickButton = clickBtn;
+    _themeColor = color;
+    _isFspcPunchStick = isPunch;
+    _edgeHaptic = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleRigid];
+    self.multipleTouchEnabled = YES;
+
+    UIBlurEffect* blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
+    _baseBlur = [[UIVisualEffectView alloc] initWithEffect:blur];
+    _baseBlur.userInteractionEnabled = NO;
+    _baseBlur.alpha = 0.55;
+    _baseBlur.clipsToBounds = YES;
+    [self addSubview:_baseBlur];
+
+    _baseRing = [CAShapeLayer layer];
+    _baseRing.fillColor = [UIColor clearColor].CGColor;
+    _baseRing.strokeColor = [_themeColor colorWithAlphaComponent:0.45].CGColor;
+    _baseRing.lineWidth = 2.0;
+    _baseRing.lineDashPattern = @[@6, @4];
+    [self.layer addSublayer:_baseRing];
+
+    _knobView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 56, 56)];
+    _knobView.backgroundColor = [_themeColor colorWithAlphaComponent:0.35];
+    _knobView.layer.cornerRadius = 28;
+    _knobView.layer.borderColor = [_themeColor colorWithAlphaComponent:0.9].CGColor;
+    _knobView.layer.borderWidth = 2.2;
+    _knobView.userInteractionEnabled = NO;
+    [self addSubview:_knobView];
+
+    _label = [[UILabel alloc] init];
+    _label.text = _labelTitle;
+    _label.textColor = [UIColor colorWithWhite:1.0 alpha:0.65];
+    _label.font = [UIFont systemFontOfSize:9.0 weight:UIFontWeightHeavy];
+    _label.textAlignment = NSTextAlignmentCenter;
+    [_knobView addSubview:_label];
+  }
+  return self;
+}
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  CGFloat r = MIN(self.bounds.size.width, self.bounds.size.height) * 0.5;
+  _baseBlur.frame = self.bounds;
+  _baseBlur.layer.cornerRadius = r;
+  _baseRing.path = [UIBezierPath bezierPathWithOvalInRect:CGRectInset(self.bounds, 2, 2)].CGPath;
+  if (!_activeTouch) {
+    _knobView.center = CGPointMake(self.bounds.size.width * 0.5, self.bounds.size.height * 0.5);
+  }
+  _label.frame = _knobView.bounds;
+}
+
+- (void)updateWithTouch:(UITouch*)touch {
+  CGPoint center = CGPointMake(self.bounds.size.width * 0.5, self.bounds.size.height * 0.5);
+  CGPoint pt = [touch locationInView:self];
+  CGFloat dx = pt.x - center.x;
+  CGFloat dy = pt.y - center.y;
+  CGFloat maxRadius = (MIN(self.bounds.size.width, self.bounds.size.height) * 0.5) - 18.0;
+  CGFloat dist = std::hypot(dx, dy);
 
   if (dist > maxRadius) {
     dx = (dx / dist) * maxRadius;
     dy = (dy / dist) * maxRadius;
-    dist = maxRadius;
-  }
-
-  _thumbView.center = CGPointMake(cx + dx, cy + dy);
-
-  // Normalized -1.0 to 1.0 (Note: Screen Y is down; Game Y is up)
-  float nx = dx / maxRadius;
-  float ny = -dy / maxRadius;
-
-  if (_isPunchPad) {
-    // Straight / Jab Calibration Fix:
-    // If flicking upward (forward punch) and X is within cardinal corridor, snap X=0
-    if (g_straight_calibration && ny > 0.35f && std::fabs(nx) < 0.28f) {
-      nx = 0.0f;
-    }
-    // Right stick: Axis 2 (X), Axis 3 (Y)
-    SetVirtualAxis(2, static_cast<int16_t>(nx * 32767.0f));
-    SetVirtualAxis(3, static_cast<int16_t>(-ny * 32767.0f)); // SDL gamepad stick Y is inverted
-    if (dist > maxRadius * 0.7) {
-      IOSHaptics_TriggerTap(0.4f);
+    if (!_wasAtRim) {
+      [_edgeHaptic impactOccurredWithIntensity:0.65];
+      _wasAtRim = YES;
     }
   } else {
-    // Left stick: Axis 0 (X), Axis 1 (Y)
-    SetVirtualAxis(0, static_cast<int16_t>(nx * 32767.0f));
-    SetVirtualAxis(1, static_cast<int16_t>(-ny * 32767.0f));
+    _wasAtRim = NO;
+  }
+
+  _knobView.center = CGPointMake(center.x + dx, center.y + dy);
+
+  float normX = std::fmax(-1.0f, std::fmin(1.0f, (float)(dx / maxRadius)));
+  float normY = std::fmax(-1.0f, std::fmin(1.0f, (float)(dy / maxRadius)));
+
+  // Fight Night Champion Full Spectrum Punch Control (FSPC) Tuning
+  if (_isFspcPunchStick && g_straight_calibration) {
+    float mag = std::hypot(normX, normY);
+    // 1. Deadzone: < 0.25 sends 0 to prevent idle drift
+    if (mag < 0.25f) {
+      normX = 0.0f;
+      normY = 0.0f;
+    } else {
+      // 2. Cardinal Corridor Calibration:
+      // In screen coords, top (12 o'clock) is dx=0, dy < 0 (angle = -90 deg).
+      // Angle delta from top (12 o'clock):
+      float angleRad = std::atan2(normY, normX);
+      float angleDeg = angleRad * (180.0f / 3.14159265f);
+      float deltaFromTop = std::fmod(angleDeg - (-90.0f) + 360.0f, 360.0f);
+      if (deltaFromTop > 180.0f) deltaFromTop -= 360.0f;
+
+      // Jab / Straight corridor: -30 to +30 deg from 12 o'clock
+      if (std::fabs(deltaFromTop) <= 30.0f) {
+        normX = 0.0f;
+        normY = -mag; // Pure upward snap for crisp Straight/Jab
+      }
+      // Right Hook: +90 deg (3 o'clock)
+      else if (std::fabs(deltaFromTop - 90.0f) <= 22.0f) {
+        normX = mag;
+        normY = 0.0f;
+      }
+      // Left Hook: -90 deg (9 o'clock)
+      else if (std::fabs(deltaFromTop - (-90.0f)) <= 22.0f) {
+        normX = -mag;
+        normY = 0.0f;
+      }
+      // Right Uppercut: +145 deg (5 o'clock)
+      else if (std::fabs(deltaFromTop - 145.0f) <= 18.0f) {
+        normX = mag * 0.82f;
+        normY = mag * 0.57f;
+      }
+      // Left Uppercut: -145 deg (7 o'clock)
+      else if (std::fabs(deltaFromTop - (-145.0f)) <= 18.0f) {
+        normX = -mag * 0.82f;
+        normY = mag * 0.57f;
+      }
+
+      // 3. Velocity Gating & Outer Rim Saturation:
+      // Accelerate rapidly from deadzone to outer rim (r >= 0.88)
+      if (mag >= 0.65f) {
+        float boost = std::min(1.0f, 0.88f + (mag - 0.65f) * 0.35f);
+        float currentLen = std::hypot(normX, normY);
+        if (currentLen > 0.001f) {
+          normX = (normX / currentLen) * boost;
+          normY = (normY / currentLen) * boost;
+        }
+      }
+    }
+  }
+
+  FNC_SendAxis(_axisX, (Sint16)(normX * 32767.0f));
+  FNC_SendAxis(_axisY, (Sint16)(normY * 32767.0f));
+}
+
+- (void)resetStick {
+  _activeTouch = nil;
+  _wasAtRim = NO;
+  FNC_SendAxis(_axisX, 0);
+  FNC_SendAxis(_axisY, 0);
+  FNC_SendButton(_stickClickButton, false);
+  [UIView animateWithDuration:0.14
+                        delay:0
+       usingSpringWithDamping:0.65
+        initialSpringVelocity:0.5
+                      options:UIViewAnimationOptionBeginFromCurrentState
+                   animations:^{
+    self->_knobView.center = CGPointMake(self.bounds.size.width * 0.5, self.bounds.size.height * 0.5);
+    self->_knobView.transform = CGAffineTransformIdentity;
+  } completion:nil];
+}
+
+- (void)touchesBegan:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+  if (!_activeTouch) {
+    _activeTouch = [touches anyObject];
+    NSTimeInterval now = [NSProcessInfo processInfo].systemUptime;
+    // Double-tap stick for L3 / R3 click
+    if (now - _lastTapTime < 0.28) {
+      FNC_SendButton(_stickClickButton, true);
+    }
+    _lastTapTime = now;
+    [UIView animateWithDuration:0.08 animations:^{
+      self->_knobView.transform = CGAffineTransformMakeScale(1.12, 1.12);
+    }];
+    [self updateWithTouch:_activeTouch];
   }
 }
 
-- (void)resetThumb {
-  CGFloat cx = self.bounds.size.width / 2.0;
-  CGFloat cy = self.bounds.size.height / 2.0;
-  [UIView animateWithDuration:0.08 animations:^{
-    self.thumbView.center = CGPointMake(cx, cy);
-  }];
-  if (_isPunchPad) {
-    SetVirtualAxis(2, 0);
-    SetVirtualAxis(3, 0);
-  } else {
-    SetVirtualAxis(0, 0);
-    SetVirtualAxis(1, 0);
+- (void)touchesMoved:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+  if ([touches containsObject:_activeTouch]) {
+    [self updateWithTouch:_activeTouch];
+  }
+}
+
+- (void)touchesEnded:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+  if ([touches containsObject:_activeTouch]) {
+    [self resetStick];
+  }
+}
+
+- (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
+  if ([touches containsObject:_activeTouch]) {
+    [self resetStick];
   }
 }
 
 @end
 
-// ---------------------------------------------------------------------------
-//  Action Button View (Global Scope for Objective-C)
-// ---------------------------------------------------------------------------
-@interface ActionButton : UIButton
-@property(nonatomic, assign) PadButton buttonId;
-@property(nonatomic, assign) int axisTrigger; // -1 if not trigger, 4=LT, 5=RT
+#pragma mark - Main Overlay Container (Menu Nav + Ring Controls)
 
-- (instancetype)initWithTitle:(NSString*)title buttonId:(PadButton)btnId trigger:(int)trig frame:(CGRect)frame;
-- (void)touchDown;
-- (void)touchUp;
+@interface FNCVirtualControllerOverlay : UIView
+@property(nonatomic, assign) BOOL menuNavigationMode;
 @end
 
-@implementation ActionButton
+@implementation FNCVirtualControllerOverlay {
+  // Left & Right Analog Sticks
+  FNCThumbstickView* _leftStick;
+  FNCThumbstickView* _rightStick;
 
-- (instancetype)initWithTitle:(NSString*)title buttonId:(PadButton)btnId trigger:(int)trig frame:(CGRect)frame {
+  // D-Pad for Main Menu & In-Fight Adjustments
+  UIView* _dpadContainer;
+  FNCGlassButton* _dpadUp;
+  FNCGlassButton* _dpadDown;
+  FNCGlassButton* _dpadLeft;
+  FNCGlassButton* _dpadRight;
+
+  // Face Buttons (A, B, X, Y)
+  FNCGlassButton* _btnA;
+  FNCGlassButton* _btnB;
+  FNCGlassButton* _btnX;
+  FNCGlassButton* _btnY;
+
+  // Bumpers & Triggers (Block, Lean, Body, Power/Haymaker)
+  FNCGlassButton* _btnLB;
+  FNCGlassButton* _btnRB;
+  FNCGlassButton* _btnLT;
+  FNCGlassButton* _btnRT;
+
+  // Top Navigation Bar (BACK, START, NAV MODE, HUD OPACITY)
+  FNCGlassButton* _btnBack;
+  FNCGlassButton* _btnStart;
+  UIButton* _btnModeToggle;
+  UIButton* _btnOpacityToggle;
+  UILabel* _modeBannerLabel;
+
+  // Center Touchpad Swipe Recognizer for fast Main Menu navigation
+  UISwipeGestureRecognizer* _swipeUp;
+  UISwipeGestureRecognizer* _swipeDown;
+  UISwipeGestureRecognizer* _swipeLeft;
+  UISwipeGestureRecognizer* _swipeRight;
+  UITapGestureRecognizer* _doubleTapConfirm;
+
+  CGFloat _hudAlpha;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
   self = [super initWithFrame:frame];
   if (self) {
-    _buttonId = btnId;
-    _axisTrigger = trig;
-    self.backgroundColor = [UIColor colorWithWhite:0.15 alpha:0.45];
-    self.layer.cornerRadius = frame.size.width / 2.0;
-    self.layer.borderColor = [UIColor colorWithRed:0.83 green:0.68 blue:0.21 alpha:0.8].CGColor;
-    self.layer.borderWidth = 1.8;
-    [self setTitle:title forState:UIControlStateNormal];
-    [self setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    self.multipleTouchEnabled = YES;
+    self.backgroundColor = [UIColor clearColor];
+    _hudAlpha = 0.90;
+    _menuNavigationMode = NO;
 
-    [self addTarget:self action:@selector(touchDown) forControlEvents:UIControlEventTouchDown];
-    [self addTarget:self action:@selector(touchUp) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+    [self buildControls];
+    [self setupMenuSwipeGestures];
   }
   return self;
 }
 
-- (void)touchDown {
-  self.backgroundColor = [UIColor colorWithRed:0.83 green:0.68 blue:0.21 alpha:0.75];
-  SetVirtualButton(_buttonId, true);
-  if (_axisTrigger == 4) SetVirtualAxis(4, 32767);
-  if (_axisTrigger == 5) SetVirtualAxis(5, 32767);
-  IOSHaptics_TriggerTouch(0.35f);
+- (void)buildControls {
+  UIColor* goldColor    = [UIColor colorWithRed:0.96 green:0.78 blue:0.26 alpha:1.0];
+  UIColor* crimsonColor = [UIColor colorWithRed:0.92 green:0.22 blue:0.26 alpha:1.0];
+  UIColor* greenColor   = [UIColor colorWithRed:0.24 green:0.86 blue:0.42 alpha:1.0];
+  UIColor* blueColor    = [UIColor colorWithRed:0.26 green:0.62 blue:0.98 alpha:1.0];
+  UIColor* steelColor   = [UIColor colorWithRed:0.78 green:0.82 blue:0.88 alpha:1.0];
+
+  // 1. Analog Sticks
+  _leftStick = [[FNCThumbstickView alloc] initWithTitle:@"MOVE"
+                                                  axisX:kFNCAxisLeftX
+                                                  axisY:kFNCAxisLeftY
+                                            clickButton:kFNCButtonLStick
+                                             themeColor:steelColor
+                                           isPunchStick:NO];
+  [self addSubview:_leftStick];
+
+  _rightStick = [[FNCThumbstickView alloc] initWithTitle:@"PUNCH"
+                                                   axisX:kFNCAxisRightX
+                                                   axisY:kFNCAxisRightY
+                                             clickButton:kFNCButtonRStick
+                                              themeColor:crimsonColor
+                                            isPunchStick:YES];
+  [self addSubview:_rightStick];
+
+  // 2. Cross D-Pad (Essential for Main Menu & Fight Night Navigation)
+  _dpadContainer = [[UIView alloc] initWithFrame:CGRectZero];
+  [self addSubview:_dpadContainer];
+
+  _dpadUp    = [[FNCGlassButton alloc] initWithTitle:@"▲" subtitle:nil accentColor:goldColor sdlButton:kFNCButtonDPadUp    triggerAxis:-1 isPill:NO];
+  _dpadDown  = [[FNCGlassButton alloc] initWithTitle:@"▼" subtitle:nil accentColor:goldColor sdlButton:kFNCButtonDPadDown  triggerAxis:-1 isPill:NO];
+  _dpadLeft  = [[FNCGlassButton alloc] initWithTitle:@"◄" subtitle:nil accentColor:goldColor sdlButton:kFNCButtonDPadLeft  triggerAxis:-1 isPill:NO];
+  _dpadRight = [[FNCGlassButton alloc] initWithTitle:@"►" subtitle:nil accentColor:goldColor sdlButton:kFNCButtonDPadRight triggerAxis:-1 isPill:NO];
+  [_dpadContainer addSubview:_dpadUp];
+  [_dpadContainer addSubview:_dpadDown];
+  [_dpadContainer addSubview:_dpadLeft];
+  [_dpadContainer addSubview:_dpadRight];
+
+  // 3. Face Buttons (A=Confirm, B=Back, X, Y)
+  _btnA = [[FNCGlassButton alloc] initWithTitle:@"A" subtitle:@"OK"   accentColor:greenColor   sdlButton:kFNCButtonA triggerAxis:-1 isPill:NO];
+  _btnB = [[FNCGlassButton alloc] initWithTitle:@"B" subtitle:@"BACK" accentColor:crimsonColor sdlButton:kFNCButtonB triggerAxis:-1 isPill:NO];
+  _btnX = [[FNCGlassButton alloc] initWithTitle:@"X" subtitle:nil     accentColor:blueColor    sdlButton:kFNCButtonX triggerAxis:-1 isPill:NO];
+  _btnY = [[FNCGlassButton alloc] initWithTitle:@"Y" subtitle:nil     accentColor:goldColor    sdlButton:kFNCButtonY triggerAxis:-1 isPill:NO];
+  [self addSubview:_btnA];
+  [self addSubview:_btnB];
+  [self addSubview:_btnX];
+  [self addSubview:_btnY];
+
+  // 4. Triggers & Bumpers (Labeled for Fight Night Champion mechanics)
+  _btnLT = [[FNCGlassButton alloc] initWithTitle:@"LT" subtitle:@"BODY/LEAN" accentColor:steelColor   sdlButton:-1           triggerAxis:kFNCAxisTriggerLeft  isPill:YES];
+  _btnLB = [[FNCGlassButton alloc] initWithTitle:@"LB" subtitle:@"WEAVE/TAB" accentColor:steelColor   sdlButton:kFNCButtonLB triggerAxis:-1                   isPill:YES];
+  _btnRT = [[FNCGlassButton alloc] initWithTitle:@"RT" subtitle:@"BLOCK"     accentColor:goldColor    sdlButton:-1           triggerAxis:kFNCAxisTriggerRight isPill:YES];
+  _btnRB = [[FNCGlassButton alloc] initWithTitle:@"RB" subtitle:@"POWER/TAB" accentColor:crimsonColor sdlButton:kFNCButtonRB triggerAxis:-1                   isPill:YES];
+  [self addSubview:_btnLT];
+  [self addSubview:_btnLB];
+  [self addSubview:_btnRT];
+  [self addSubview:_btnRB];
+
+  // 5. Top Navigation Bar (BACK, START, Mode Switch, Opacity)
+  _btnBack  = [[FNCGlassButton alloc] initWithTitle:@"BACK"  subtitle:nil accentColor:steelColor sdlButton:kFNCButtonBack  triggerAxis:-1 isPill:YES];
+  _btnStart = [[FNCGlassButton alloc] initWithTitle:@"START" subtitle:nil accentColor:goldColor  sdlButton:kFNCButtonStart triggerAxis:-1 isPill:YES];
+  [self addSubview:_btnBack];
+  [self addSubview:_btnStart];
+
+  _btnModeToggle = [UIButton buttonWithType:UIButtonTypeSystem];
+  [_btnModeToggle setTitle:@"🥊 RING MODE" forState:UIControlStateNormal];
+  [_btnModeToggle setTitleColor:goldColor forState:UIControlStateNormal];
+  _btnModeToggle.titleLabel.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightHeavy];
+  _btnModeToggle.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.65];
+  _btnModeToggle.layer.cornerRadius = 14.0;
+  _btnModeToggle.layer.borderWidth = 1.2;
+  _btnModeToggle.layer.borderColor = [goldColor colorWithAlphaComponent:0.6].CGColor;
+  [_btnModeToggle addTarget:self action:@selector(toggleNavigationMode) forControlEvents:UIControlEventTouchUpInside];
+  [self addSubview:_btnModeToggle];
+
+  _btnOpacityToggle = [UIButton buttonWithType:UIButtonTypeSystem];
+  [_btnOpacityToggle setTitle:@"👁" forState:UIControlStateNormal];
+  [_btnOpacityToggle setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+  _btnOpacityToggle.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+  _btnOpacityToggle.backgroundColor = [UIColor colorWithWhite:0.1 alpha:0.65];
+  _btnOpacityToggle.layer.cornerRadius = 14.0;
+  _btnOpacityToggle.layer.borderWidth = 1.0;
+  _btnOpacityToggle.layer.borderColor = [UIColor colorWithWhite:0.6 alpha:0.4].CGColor;
+  [_btnOpacityToggle addTarget:self action:@selector(cycleOpacity) forControlEvents:UIControlEventTouchUpInside];
+  [self addSubview:_btnOpacityToggle];
+
+  _modeBannerLabel = [[UILabel alloc] init];
+  _modeBannerLabel.text = @"SWIPE CENTER TO NAVIGATE MENU • DOUBLE-TAP TO SELECT (A)";
+  _modeBannerLabel.textColor = [goldColor colorWithAlphaComponent:0.85];
+  _modeBannerLabel.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightBold];
+  _modeBannerLabel.textAlignment = NSTextAlignmentCenter;
+  _modeBannerLabel.alpha = 0.0;
+  [self addSubview:_modeBannerLabel];
 }
 
-- (void)touchUp {
-  self.backgroundColor = [UIColor colorWithWhite:0.15 alpha:0.45];
-  SetVirtualButton(_buttonId, false);
-  if (_axisTrigger == 4) SetVirtualAxis(4, 0);
-  if (_axisTrigger == 5) SetVirtualAxis(5, 0);
+#pragma mark - Direct Touch / Swipe Menu Navigation
+
+- (void)setupMenuSwipeGestures {
+  auto addSwipe = ^(UISwipeGestureRecognizerDirection dir, SEL action) {
+    UISwipeGestureRecognizer* swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:action];
+    swipe.direction = dir;
+    [self addGestureRecognizer:swipe];
+    return swipe;
+  };
+  _swipeUp    = addSwipe(UISwipeGestureRecognizerDirectionUp,    @selector(handleSwipeUp));
+  _swipeDown  = addSwipe(UISwipeGestureRecognizerDirectionDown,  @selector(handleSwipeDown));
+  _swipeLeft  = addSwipe(UISwipeGestureRecognizerDirectionLeft,  @selector(handleSwipeLeft));
+  _swipeRight = addSwipe(UISwipeGestureRecognizerDirectionRight, @selector(handleSwipeRight));
+
+  _doubleTapConfirm = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTapConfirm)];
+  _doubleTapConfirm.numberOfTapsRequired = 2;
+  [self addGestureRecognizer:_doubleTapConfirm];
+}
+
+- (void)pulseButton:(int)sdlBtn {
+  UIImpactFeedbackGenerator* gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+  [gen impactOccurred];
+  FNC_SendButton(sdlBtn, true);
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(75 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+    FNC_SendButton(sdlBtn, false);
+  });
+}
+
+- (void)handleSwipeUp    { if (_menuNavigationMode) [self pulseButton:kFNCButtonDPadUp]; }
+- (void)handleSwipeDown  { if (_menuNavigationMode) [self pulseButton:kFNCButtonDPadDown]; }
+- (void)handleSwipeLeft  { if (_menuNavigationMode) [self pulseButton:kFNCButtonDPadLeft]; }
+- (void)handleSwipeRight { if (_menuNavigationMode) [self pulseButton:kFNCButtonDPadRight]; }
+- (void)handleDoubleTapConfirm { if (_menuNavigationMode) [self pulseButton:kFNCButtonA]; }
+
+- (void)toggleNavigationMode {
+  _menuNavigationMode = !_menuNavigationMode;
+  UIImpactFeedbackGenerator* gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+  [gen impactOccurred];
+
+  UIColor* goldColor = [UIColor colorWithRed:0.96 green:0.78 blue:0.26 alpha:1.0];
+  UIColor* cyanColor = [UIColor colorWithRed:0.28 green:0.84 blue:0.98 alpha:1.0];
+
+  if (_menuNavigationMode) {
+    [_btnModeToggle setTitle:@"📋 MENU NAV" forState:UIControlStateNormal];
+    [_btnModeToggle setTitleColor:cyanColor forState:UIControlStateNormal];
+    _btnModeToggle.layer.borderColor = cyanColor.CGColor;
+  } else {
+    [_btnModeToggle setTitle:@"🥊 RING MODE" forState:UIControlStateNormal];
+    [_btnModeToggle setTitleColor:goldColor forState:UIControlStateNormal];
+    _btnModeToggle.layer.borderColor = [goldColor colorWithAlphaComponent:0.6].CGColor;
+  }
+
+  [UIView animateWithDuration:0.22
+                        delay:0
+       usingSpringWithDamping:0.78
+        initialSpringVelocity:0.4
+                      options:UIViewAnimationOptionBeginFromCurrentState
+                   animations:^{
+    self->_modeBannerLabel.alpha = self->_menuNavigationMode ? 1.0 : 0.0;
+    self->_rightStick.alpha = self->_menuNavigationMode ? 0.20 : self->_hudAlpha;
+    self->_btnLT.alpha = self->_menuNavigationMode ? 0.20 : self->_hudAlpha;
+    self->_btnRT.alpha = self->_menuNavigationMode ? 0.20 : self->_hudAlpha;
+    [self setNeedsLayout];
+    [self layoutIfNeeded];
+  } completion:nil];
+}
+
+- (void)cycleOpacity {
+  if (_hudAlpha > 0.8f) _hudAlpha = 0.55f;
+  else if (_hudAlpha > 0.4f) _hudAlpha = 0.22f;
+  else _hudAlpha = 0.90f;
+
+  [UIView animateWithDuration:0.18 animations:^{
+    for (UIView* sub in self.subviews) {
+      if (sub != self->_btnModeToggle && sub != self->_btnOpacityToggle && sub != self->_modeBannerLabel) {
+        sub.alpha = self->_hudAlpha;
+      }
+    }
+  }];
+}
+
+#pragma mark - Responsive Ergonomic Layout (874x402 Landscape Safe Area)
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  UIEdgeInsets safe = self.safeAreaInsets;
+  CGFloat W = self.bounds.size.width;
+  CGFloat H = self.bounds.size.height;
+  CGFloat leftPad  = MAX(safe.left, 18.0);
+  CGFloat rightPad = MAX(safe.right, 18.0);
+  CGFloat topPad   = MAX(safe.top, 12.0);
+  CGFloat botPad   = MAX(safe.bottom, 14.0);
+
+  // Top Center Navigation Bar
+  CGFloat centerX = W * 0.5;
+  _btnModeToggle.frame    = CGRectMake(centerX - 58, topPad, 116, 28);
+  _btnBack.frame          = CGRectMake(centerX - 132, topPad, 66, 28);
+  _btnStart.frame         = CGRectMake(centerX + 66, topPad, 66, 28);
+  _btnOpacityToggle.frame = CGRectMake(centerX + 140, topPad, 34, 28);
+  _modeBannerLabel.frame  = CGRectMake(centerX - 200, topPad + 32, 400, 16);
+
+  // Left & Right Shoulder Triggers / Bumpers
+  CGFloat shW = 78.0, shH = 34.0;
+  _btnLT.frame = CGRectMake(leftPad, topPad + 4, shW, shH);
+  _btnLB.frame = CGRectMake(leftPad + shW + 10, topPad + 4, shW, shH);
+
+  _btnRT.frame = CGRectMake(W - rightPad - shW, topPad + 4, shW, shH);
+  _btnRB.frame = CGRectMake(W - rightPad - (shW * 2) - 10, topPad + 4, shW, shH);
+
+  if (_menuNavigationMode) {
+    // MENU NAVIGATION MODE: Prominent Left D-Pad + Large Right Action Cluster
+    CGFloat dpadSize = 148.0;
+    _dpadContainer.frame = CGRectMake(leftPad + 16, H - botPad - dpadSize - 24, dpadSize, dpadSize);
+    _leftStick.frame = CGRectMake(leftPad + dpadSize + 34, H - botPad - 110, 100, 100);
+
+    CGFloat bSize = 54.0;
+    CGFloat clusterX = W - rightPad - 100;
+    CGFloat clusterY = H - botPad - 106;
+    _btnA.frame = CGRectMake(clusterX - bSize*0.5, clusterY + 34, bSize, bSize);
+    _btnB.frame = CGRectMake(clusterX + 36,        clusterY - bSize*0.5, bSize, bSize);
+    _btnX.frame = CGRectMake(clusterX - 36 - bSize,clusterY - bSize*0.5, bSize, bSize);
+    _btnY.frame = CGRectMake(clusterX - bSize*0.5, clusterY - 34 - bSize, bSize, bSize);
+
+    _rightStick.frame = CGRectMake(W - rightPad - 235, H - botPad - 96, 86, 86);
+  } else {
+    // RING BOXING MODE: Ergonomic Dual Analog Sticks (Left = Footwork, Right = Full Spectrum Punch)
+    CGFloat stickSize = 142.0;
+    _leftStick.frame  = CGRectMake(leftPad + 8, H - botPad - stickSize - 8, stickSize, stickSize);
+    _rightStick.frame = CGRectMake(W - rightPad - stickSize - 8, H - botPad - stickSize - 8, stickSize, stickSize);
+
+    // Compact D-Pad tucked above-right of Left Stick for quick menu/corner access
+    CGFloat dpadSize = 104.0;
+    _dpadContainer.frame = CGRectMake(leftPad + stickSize + 18, H - botPad - dpadSize - 12, dpadSize, dpadSize);
+
+    // Compact Diamond Action Cluster arched around Right Stick
+    CGFloat bSize = 42.0;
+    CGFloat clusterX = W - rightPad - stickSize - 74;
+    CGFloat clusterY = H - botPad - 76;
+    _btnA.frame = CGRectMake(clusterX - bSize*0.5, clusterY + 26, bSize, bSize);
+    _btnB.frame = CGRectMake(clusterX + 28,        clusterY - bSize*0.5, bSize, bSize);
+    _btnX.frame = CGRectMake(clusterX - 28 - bSize,clusterY - bSize*0.5, bSize, bSize);
+    _btnY.frame = CGRectMake(clusterX - bSize*0.5, clusterY - 26 - bSize, bSize, bSize);
+  }
+
+  // Layout D-Pad Buttons inside _dpadContainer
+  CGFloat dW = _dpadContainer.bounds.size.width;
+  CGFloat dH = _dpadContainer.bounds.size.height;
+  CGFloat btnS = dW * 0.34;
+  _dpadUp.frame    = CGRectMake((dW - btnS)*0.5, 0,          btnS, btnS);
+  _dpadDown.frame  = CGRectMake((dW - btnS)*0.5, dH - btnS,  btnS, btnS);
+  _dpadLeft.frame  = CGRectMake(0,               (dH - btnS)*0.5, btnS, btnS);
+  _dpadRight.frame = CGRectMake(dW - btnS,       (dH - btnS)*0.5, btnS, btnS);
 }
 
 @end
 
-namespace {
-
-// ---------------------------------------------------------------------------
-//  Touch Overlay Container
-// ---------------------------------------------------------------------------
-void RebuildOverlayView() {
-  if (!g_overlay_view) return;
-  for (UIView* v in [g_overlay_view.subviews copy]) {
-    if (v != g_fps_label) [v removeFromSuperview];
-  }
-
-  CGRect bounds = g_overlay_view.bounds;
-  CGFloat W = bounds.size.width;
-  CGFloat H = bounds.size.height;
-  if (W < 100 || H < 100) return;
-
-  // 1. Left Movement Stick
-  CGFloat stickSize = std::min(W * 0.22, 170.0);
-  VirtualStickView* leftStick = [[VirtualStickView alloc] initWithFrame:CGRectMake(40, H - stickSize - 35, stickSize, stickSize) isPunchPad:NO];
-  [g_overlay_view addSubview:leftStick];
-
-  if (g_boxing_style == 0) {
-    // -----------------------------------------------------------------------
-    // Style 0: Full Spectrum Punch Control (Flick Pad)
-    // -----------------------------------------------------------------------
-    // Right Flick Pad
-    CGFloat flickSize = std::min(W * 0.25, 190.0);
-    VirtualStickView* punchPad = [[VirtualStickView alloc] initWithFrame:CGRectMake(W - flickSize - 40, H - flickSize - 35, flickSize, flickSize) isPunchPad:YES];
-    [g_overlay_view addSubview:punchPad];
-
-    // Surrounding action buttons (Block RT, Lean LT, Body LB, Power RB, Clinch LS, Push RS, Camera Back)
-    CGFloat btnSize = 52.0;
-    CGFloat rx = W - flickSize - 40;
-    CGFloat ry = H - flickSize - 35;
-
-    // Block (RT) - Upper right
-    ActionButton* btnRT = [[ActionButton alloc] initWithTitle:@"BLK" buttonId:kBtnRB trigger:5 frame:CGRectMake(W - 75, ry - 55, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnRT];
-
-    // Lean/Weave (LT) - Upper left of flick pad
-    ActionButton* btnLT = [[ActionButton alloc] initWithTitle:@"LEAN" buttonId:kBtnLB trigger:4 frame:CGRectMake(rx - 25, ry - 55, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnLT];
-
-    // Body Modifier (LB) - Left of flick pad
-    ActionButton* btnLB = [[ActionButton alloc] initWithTitle:@"BODY" buttonId:kBtnLB trigger:-1 frame:CGRectMake(rx - 55, ry + 25, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnLB];
-
-    // Power Punch Modifier (RB) - Above flick pad center
-    ActionButton* btnRB = [[ActionButton alloc] initWithTitle:@"PWR" buttonId:kBtnRB trigger:-1 frame:CGRectMake(rx + (flickSize - btnSize) / 2.0, ry - 65, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnRB];
-
-    // Clinch (LS) - Near left stick
-    ActionButton* btnClinch = [[ActionButton alloc] initWithTitle:@"CLINCH" buttonId:kBtnLS trigger:-1 frame:CGRectMake(45, H - stickSize - 95, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnClinch];
-
-    // Push (RS) - Below left stick
-    ActionButton* btnPush = [[ActionButton alloc] initWithTitle:@"PUSH" buttonId:kBtnRS trigger:-1 frame:CGRectMake(115, H - stickSize - 95, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnPush];
-
-    // Camera Toggle (Back/View) - Top right ringside
-    ActionButton* btnCam = [[ActionButton alloc] initWithTitle:@"CAM" buttonId:kBtnBack trigger:-1 frame:CGRectMake(W - 85, 25, btnSize, btnSize)];
-    [g_overlay_view addSubview:btnCam];
-
-  } else {
-    // -----------------------------------------------------------------------
-    // Style 1: Classic Xbox 360 Pad (Face Buttons A/B/X/Y)
-    // -----------------------------------------------------------------------
-    CGFloat btnSize = 55.0;
-    CGFloat cx = W - 130.0;
-    CGFloat cy = H - 130.0;
-    CGFloat d = 55.0;
-
-    // Y (Straight) - Top
-    ActionButton* btnY = [[ActionButton alloc] initWithTitle:@"Y\nSTR" buttonId:kBtnY trigger:-1 frame:CGRectMake(cx, cy - d, btnSize, btnSize)];
-    // X (Jab) - Left
-    ActionButton* btnX = [[ActionButton alloc] initWithTitle:@"X\nJAB" buttonId:kBtnX trigger:-1 frame:CGRectMake(cx - d, cy, btnSize, btnSize)];
-    // B (Right Hook) - Right
-    ActionButton* btnB = [[ActionButton alloc] initWithTitle:@"B\nR-HK" buttonId:kBtnB trigger:-1 frame:CGRectMake(cx + d, cy, btnSize, btnSize)];
-    // A (Left Hook) - Bottom
-    ActionButton* btnA = [[ActionButton alloc] initWithTitle:@"A\nL-HK" buttonId:kBtnA trigger:-1 frame:CGRectMake(cx, cy + d, btnSize, btnSize)];
-
-    [g_overlay_view addSubview:btnY];
-    [g_overlay_view addSubview:btnX];
-    [g_overlay_view addSubview:btnB];
-    [g_overlay_view addSubview:btnA];
-
-    // Triggers / Shoulders
-    ActionButton* btnRT = [[ActionButton alloc] initWithTitle:@"RT" buttonId:kBtnRB trigger:5 frame:CGRectMake(W - 85, cy - d - 65, btnSize, btnSize)];
-    ActionButton* btnRB = [[ActionButton alloc] initWithTitle:@"RB" buttonId:kBtnRB trigger:-1 frame:CGRectMake(W - 150, cy - d - 65, btnSize, btnSize)];
-    ActionButton* btnLT = [[ActionButton alloc] initWithTitle:@"LT" buttonId:kBtnLB trigger:4 frame:CGRectMake(40, 25, btnSize, btnSize)];
-    ActionButton* btnLB = [[ActionButton alloc] initWithTitle:@"LB" buttonId:kBtnLB trigger:-1 frame:CGRectMake(105, 25, btnSize, btnSize)];
-
-    [g_overlay_view addSubview:btnRT];
-    [g_overlay_view addSubview:btnRB];
-    [g_overlay_view addSubview:btnLT];
-    [g_overlay_view addSubview:btnLB];
-  }
-}
-
-}  // namespace
+#pragma mark - Public API (fnc::touch)
 
 namespace fnc::touch {
 
@@ -387,19 +782,18 @@ void Install() {
     }
     if (!keyWin) return;
 
-    if (!g_overlay_view) {
-      g_overlay_view = [[UIView alloc] initWithFrame:keyWin.bounds];
-      g_overlay_view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-      g_overlay_view.userInteractionEnabled = YES;
-      g_overlay_view.backgroundColor = [UIColor clearColor];
-      [keyWin addSubview:g_overlay_view];
+    if (!g_overlay_container) {
+      g_overlay_container = [[FNCVirtualControllerOverlay alloc] initWithFrame:keyWin.bounds];
+      g_overlay_container.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+      g_overlay_container.userInteractionEnabled = YES;
+      [keyWin addSubview:g_overlay_container];
 
       // Auto-hide when a hardware controller connects
       [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidConnectNotification
                                                         object:nil
                                                          queue:[NSOperationQueue mainQueue]
                                                     usingBlock:^(NSNotification*) {
-        g_overlay_view.hidden = YES;
+        g_overlay_container.hidden = YES;
         REXLOG_INFO("[FNC-Touch] Hardware controller connected, hiding touch controls");
       }];
       [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidDisconnectNotification
@@ -407,20 +801,19 @@ void Install() {
                                                          queue:[NSOperationQueue mainQueue]
                                                     usingBlock:^(NSNotification*) {
         if ([[GCController controllers] count] == 0) {
-          g_overlay_view.hidden = NO;
+          g_overlay_container.hidden = NO;
           REXLOG_INFO("[FNC-Touch] Hardware controller disconnected, restoring touch controls");
         }
       }];
     }
 
     EnsureVirtualPad();
-    RebuildOverlayView();
   });
 }
 
 void InstallFpsCounter() {
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_overlay_view || g_fps_label) return;
+    if (!g_overlay_container || g_fps_label) return;
     g_fps_label = [[UILabel alloc] initWithFrame:CGRectMake(20, 15, 130, 28)];
     g_fps_label.textColor = [UIColor colorWithRed:0.83 green:0.68 blue:0.21 alpha:1.0];
     g_fps_label.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
@@ -429,15 +822,12 @@ void InstallFpsCounter() {
     g_fps_label.layer.masksToBounds = YES;
     g_fps_label.textAlignment = NSTextAlignmentCenter;
     g_fps_label.text = @"60.0 FPS";
-    [g_overlay_view addSubview:g_fps_label];
+    [g_overlay_container addSubview:g_fps_label];
   });
 }
 
 void SetBoxingStyle(int style) {
   g_boxing_style = style;
-  dispatch_async(dispatch_get_main_queue(), ^{
-    RebuildOverlayView();
-  });
 }
 
 void SetStraightCalibrationEnabled(bool enabled) {
@@ -450,7 +840,7 @@ UIViewController* MakeLayoutEditor() {
   vc.view.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.08 alpha:1.0];
 
   UILabel* lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, 40, vc.view.bounds.size.width, 40)];
-  lbl.text = @"Touch Controls Editor - Drag to Reposition";
+  lbl.text = @"Fight Night Champion Touch Controls - Mode Switched";
   lbl.textColor = [UIColor colorWithRed:0.83 green:0.68 blue:0.21 alpha:1.0];
   lbl.font = [UIFont boldSystemFontOfSize:18];
   lbl.textAlignment = NSTextAlignmentCenter;

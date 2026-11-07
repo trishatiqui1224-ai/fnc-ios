@@ -195,6 +195,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--present_letterbox=true",
       "--mount_scratch=true",
       "--mount_cache=true",
+      "--gpu_allow_invalid_fetch_constants=true",
   };
 
   // Merge settings from Launcher
@@ -209,6 +210,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--cache_root=" + (caches / "rexglue").string());
   SetArgument(args, "--log_file=" + (docs / "logs" / "fnc.log").string());
   SetArgument(args, "--ios_iso_stream=true");
+  SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
 
   return args;
 }

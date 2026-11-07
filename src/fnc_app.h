@@ -46,6 +46,12 @@ class FncApp : public rex::ReXApp {
   // CreateAchievementNotificationDialog() override;
   // void OnShutdown() override {}
   void OnConfigurePaths(rex::PathConfig& paths) override {
+#if defined(REX_PLATFORM_IOS)
+    // On iOS, paths.game_data_root is explicitly passed via --game_data_root from ios_main.mm
+    // (pointing to a .iso image or an extracted game directory in Documents).
+    // Never overwrite with desktop relative exe_dir / "game"!
+    return;
+#else
     auto exe_dir = rex::filesystem::GetExecutableFolder();
     {
       // A relative game_data_root is relative to the exe, not to wherever the
@@ -54,10 +60,14 @@ class FncApp : public rex::ReXApp {
       auto has_xex = [&ec](const std::filesystem::path& p) {
         return std::filesystem::exists(p / "default.xex", ec);
       };
+      auto is_iso = [&ec](const std::filesystem::path& p) {
+        return std::filesystem::is_regular_file(p, ec) &&
+               (p.extension() == ".iso" || p.extension() == ".ISO");
+      };
       if (!paths.game_data_root.empty() && paths.game_data_root.is_relative()) {
         paths.game_data_root = exe_dir / paths.game_data_root;
       }
-      if (paths.game_data_root.empty() || !has_xex(paths.game_data_root)) {
+      if (paths.game_data_root.empty() || (!has_xex(paths.game_data_root) && !is_iso(paths.game_data_root))) {
         // dist\game next to the exe (normal install). The others cover starting
         // the copy in build\game, or a development tree with ..\extracted_game.
         const std::filesystem::path candidates[] = {
@@ -68,7 +78,7 @@ class FncApp : public rex::ReXApp {
         };
         auto found = exe_dir / "game";  // shown in the error if nothing is found
         for (const auto& c : candidates) {
-          if (has_xex(c)) {
+          if (has_xex(c) || is_iso(c)) {
             found = c;
             break;
           }
@@ -87,5 +97,6 @@ class FncApp : public rex::ReXApp {
         paths.user_data_root = old_dir;
       }
     }
+#endif
   }
 };

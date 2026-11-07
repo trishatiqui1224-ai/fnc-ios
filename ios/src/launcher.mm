@@ -392,8 +392,11 @@ using namespace fnc::launcher;
   if (self.presentedViewController && !self.presentedViewController.isBeingDismissed) {
     return self.presentedViewController.supportedInterfaceOrientations;
   }
-  return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ? UIInterfaceOrientationMaskAll
-                                                                              : UIInterfaceOrientationMaskPortrait;
+  return UIInterfaceOrientationMaskLandscape;
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+  return UIInterfaceOrientationLandscapeRight;
 }
 @end
 
@@ -418,6 +421,14 @@ using namespace fnc::launcher;
   NSMutableDictionary<NSString*, NSString*>* _settings;
   NSInteger _currentTab;
   std::function<void(fs::path)> _done;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  return UIInterfaceOrientationMaskLandscape;
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+  return UIInterfaceOrientationLandscapeRight;
 }
 
 - (fs::path)selectedSource {

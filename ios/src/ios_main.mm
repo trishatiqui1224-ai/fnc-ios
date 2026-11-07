@@ -168,28 +168,33 @@ void SetArgument(std::vector<std::string>& args, const std::string& arg) {
 std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path& caches, const fs::path& gameSource) {
   std::vector<std::string> args = {
       "FNCReborn",
+      "--game_data_root=" + gameSource.string(),
+      "--user_data_root=" + (docs / "rex_data").string(),
+      "--cache_root=" + (caches / "rexglue").string(),
+      "--log_file=" + (docs / "logs" / "fnc.log").string(),
+      "--log_level=info",
+      "--ios_iso_stream=true",
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
       "--render_target_path_vulkan=fbo",
+      "--clear_memory_page_state=true",
+      "--readback_resolve=fast",
+      "--ios_readback_max_kb=64",
+      "--gpu_sin_msaa=true",
+      "--ios_async_submits=true",
+      "--ios_xma_starve_reset=false",
+      "--ios_utility_qos_guest=false",
+      "--ios_utility_qos=false",
+      "--mnk_mode=false",
       "--fullscreen=true",
       "--resolution_scale=1",
-      "--readback_resolve=fast",
-      "--clear_memory_page_state=true",
       "--async_shader_compilation=true",
       "--texture_cache_memory_limit_soft=1024",
       "--texture_cache_memory_limit_hard=2048",
-      "--ios_async_submits=true",
-      "--ios_utility_qos_guest=false",
-      "--ios_xma_starve_reset=false",
       "--audio_maxqframes=64",
       "--present_letterbox=true",
       "--mount_scratch=true",
       "--mount_cache=true",
-      "--user_data_root=" + (docs / "data").string(),
-      "--cache_root=" + (caches / "rexglue").string(),
-      "--log_file=" + (docs / "logs" / "fnc.log").string(),
-      "--log_level=info",
-      "--game_data_root=" + gameSource.string(),
   };
 
   // Merge settings from Launcher
@@ -197,6 +202,13 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   for (const auto& a : launcherArgs) {
     SetArgument(args, a);
   }
+
+  // Ensure mandatory path and platform flags are never overridden
+  SetArgument(args, "--game_data_root=" + gameSource.string());
+  SetArgument(args, "--user_data_root=" + (docs / "rex_data").string());
+  SetArgument(args, "--cache_root=" + (caches / "rexglue").string());
+  SetArgument(args, "--log_file=" + (docs / "logs" / "fnc.log").string());
+  SetArgument(args, "--ios_iso_stream=true");
 
   return args;
 }
@@ -248,12 +260,15 @@ int main(int argc, char* argv[]) {
     }
     fnc::boot::Trace(std::string("launcher: selected game source: ") + gameSource.string());
 
-    // Build arguments
-    fnc::boot::Trace(std::string("audio: activating the session"));
+    // Build arguments & prepare audio session once
     rex::audio::ios::PrepareAudioSession();
 
     fnc::boot::Trace(std::string("game: parsing arguments for: ") + gameSource.string());
     auto gameArgs = BuildGameArguments(docs, caches, gameSource);
+
+    for (const auto& a : gameArgs) {
+      fnc::boot::Trace(std::string("arg: ") + a);
+    }
 
     std::vector<char*> c_argv;
     c_argv.reserve(gameArgs.size() + 1);

@@ -17,12 +17,13 @@ swap_post_effect = "fxaa"
 
 # Graphics & Rendering fixes for Fight Night Champion
 gpu_allow_invalid_fetch_constants = true
-clear_memory_page_state = true
+clear_memory_page_state = false
+vulkan_readback_resolve = true
+ios_readback_max_kb = 0
+readback_resolve = "fast"
 use_fuzzy_alpha_epsilon = true
 gamma_render_target_as_unorm16 = true
 native_2x_msaa = false
-readback_resolve = "fast"
-ios_readback_max_kb = 64
 gpu_sin_msaa = true
 
 # Texture cache limits in MB for iOS unified memory:

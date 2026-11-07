@@ -42,11 +42,15 @@ CACHE_ANCHOR = r'''  switch (fetch.type) {
       return;
   }'''
 
-CACHE_NEW = r'''  // LOCAL PATCH - Fight Night Champion: Allow fetch constants marked type 0/1 if they have a
-  // valid physical address and size (e.g. 10-frame VP6 video chroma ring buffer & 1280x720 post-process targets).
+CACHE_NEW = r'''  // LOCAL PATCH - Fight Night Champion:
+  // If fetch.type != kTexture (2):
+  // When dword_1 != 0 && dword_2 != 0 (valid address and size, e.g. 10-frame VP6 video chroma planes
+  // 120D8002..11427002 and in-game buffers 12EF3097 / 13741054 / 133E7002), DO NOT skip binding:
+  // fall through into the normal kTexture binding path so TextureCache binds the texture!
+  // When dword_1 == 0 && dword_2 == 0 (empty zero slot 00004800 00000000 00000000 ...), return early.
   if (fetch.type != xenos::FetchConstantType::kTexture) {
-    if ((fetch.dword_1 & 0xFFFFF000u) != 0 && fetch.dword_2 != 0) {
-      // Valid texture descriptors marked type 0/1 by game: allow parsing as kTexture.
+    if (fetch.dword_1 != 0 && fetch.dword_2 != 0) {
+      // Valid texture descriptors marked type 0/1: fall through to bind as kTexture!
     } else {
       return;
     }
@@ -73,28 +77,24 @@ VIDEO_RING_NEW = r'''      if (key_changed) {
       binding.texture_signed = nullptr;'''
 
 # 2. In-place Fetch Constant Promotion in GPU Command Processor (src/graphics/vulkan/command_processor.cpp)
-FETCH_PROMO_ANCHOR = r'''  uint32_t used_texture_mask =
-      vertex_shader->GetUsedTextureMaskAfterTranslation() |
-      (pixel_shader != nullptr ? pixel_shader->GetUsedTextureMaskAfterTranslation() : 0);
-  texture_cache_->RequestTextures(used_texture_mask);'''
+FETCH_PROMO_ANCHOR = r'''  const RegisterFile& regs = *register_file_;
+  (void)index_buffer_info;'''
 
-FETCH_PROMO_NEW = r'''  // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
-  // Promote valid uninitialized texture fetch constants (type == 0) in-place in register file
-  // so descriptor sets, samplers, and texture cache all recognize them as kTexture (type 2)
+FETCH_PROMO_NEW = r'''  const RegisterFile& regs = *register_file_;
+  (void)index_buffer_info;
+
+  // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
+  // Promote valid uninitialized texture fetch constants (type != 2) in-place in register file
+  // so shader analysis, samplers, descriptor sets, and texture cache all recognize them as kTexture (type 2)
   for (uint32_t i = 0; i < 32; ++i) {
     uint32_t base_reg = XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + i * 6;
     uint32_t dword_0 = register_file_->values[base_reg + 0];
     uint32_t dword_1 = register_file_->values[base_reg + 1];
     uint32_t dword_2 = register_file_->values[base_reg + 2];
-    if ((dword_0 & 0x3u) == 0 && (dword_1 & 0xFFFFF000u) != 0 && dword_2 != 0) {
+    if ((dword_0 & 0x3u) != 2 && dword_1 != 0 && dword_2 != 0) {
       register_file_->values[base_reg + 0] = (dword_0 & ~0x3u) | 0x2u;
     }
-  }
-
-  uint32_t used_texture_mask =
-      vertex_shader->GetUsedTextureMaskAfterTranslation() |
-      (pixel_shader != nullptr ? pixel_shader->GetUsedTextureMaskAfterTranslation() : 0);
-  texture_cache_->RequestTextures(used_texture_mask);'''
+  }'''
 
 # 2. SetupVfs (src/system/runtime.cpp)
 VFS_ANCHOR = r'''  // NOTE: Do NOT register a device for cache: paths

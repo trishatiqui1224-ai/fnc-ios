@@ -217,9 +217,10 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
       "--render_target_path_vulkan=fsi",
-      "--clear_memory_page_state=true",
+      "--clear_memory_page_state=false",
       "--readback_resolve=fast",
-      "--ios_readback_max_kb=64",
+      "--vulkan_readback_resolve=true",
+      "--ios_readback_max_kb=0",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -254,10 +255,11 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--ios_iso_stream=true");
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
-  SetArgument(args, "--clear_memory_page_state=true");
+  SetArgument(args, "--clear_memory_page_state=false");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
+  SetArgument(args, "--vulkan_readback_resolve=true");
+  SetArgument(args, "--ios_readback_max_kb=0");
   SetArgument(args, "--readback_resolve=fast");
-  SetArgument(args, "--ios_readback_max_kb=64");
   SetArgument(args, "--async_shader_compilation=true");
   SetArgument(args, "--texture_cache_memory_limit_soft=1024");
   SetArgument(args, "--texture_cache_memory_limit_hard=2048");

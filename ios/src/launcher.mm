@@ -170,8 +170,8 @@ const std::vector<Section>& Sections() {
       {@"BOXER & RING FIXES", nil,
        {
            {@"clear_memory_page_state", OptionType::kSwitch, @"Clear memory page state",
-            @"Prevents warped boxer trunks, stretched gloves, and detached mesh vertices (Recommended ON).",
-            @"true"},
+            @"Clears memory page states each frame. Keep OFF to prevent wiping GPU-resolved 3D render targets.",
+            @"false"},
            {@"render_target_path", OptionType::kChoice, @"Render target path (Vulkan)",
             @"FSI uses Fragment Shader Interlock (natively supported on Apple A19) for seamless 3-strip predicated tiling in 3D matches. FBO uses host framebuffers.",
             @"fsi",
@@ -315,6 +315,19 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
       }
     }
   }
+
+  // Automatic settings migration:
+  // Upgrade legacy settings (< v2):
+  // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
+  // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
+  int ver = [dict[@"settings_version"] intValue];
+  if (ver < 2) {
+    dict[@"settings_version"] = @"2";
+    dict[@"render_target_path"] = @"fsi";
+    dict[@"clear_memory_page_state"] = @"false";
+    WriteSettings(documents, dict);
+  }
+
   return dict;
 }
 
@@ -355,9 +368,11 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve
+  // Readback resolve: enable Vulkan readback with 0 limit so all 3D match resolves are copied to guest RAM
   NSString* rb = s[@"readback_resolve"] ?: @"fast";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
+  args.push_back("--vulkan_readback_resolve=true");
+  args.push_back("--ios_readback_max_kb=0");
 
   // Pipelines
   BOOL async_pipe = [s[@"async_pipelines"] boolValue];
@@ -402,7 +417,6 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back("--gpu_backend=vulkan");
   args.push_back("--gpu_allow_invalid_fetch_constants=true");
   args.push_back("--gpu_sin_msaa=true");
-  args.push_back("--ios_readback_max_kb=64");
 
   return args;
 }

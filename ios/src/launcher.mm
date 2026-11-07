@@ -619,8 +619,7 @@ using namespace fnc::launcher;
       cell.imageView.layer.masksToBounds = YES;
     }
     if (!_selectedSource.empty()) {
-      cell.detailTextLabel.text = [NSString stringWithFormat:@"Selected: %s
-Title ID: 45410915 • Media ID: 2DC50868", _selectedSource.filename().string().c_str()];
+      cell.detailTextLabel.text = [NSString stringWithFormat:@"Selected: %s\nTitle ID: 45410915 • Media ID: 2DC50868", _selectedSource.filename().string().c_str()];
       cell.detailTextLabel.textColor = [UIColor systemGreenColor];
     } else {
       cell.detailTextLabel.text = @"No Game Source Selected (Tap 'Choose ISO...' or place files in Documents)";
@@ -669,8 +668,8 @@ Title ID: 45410915 • Media ID: 2DC50868", _selectedSource.filename().string().
       }]];
     }
     if (sources.empty()) {
-      sheet.message = @"No game disc images or extracted folders found in Documents.
-Use 'Choose ISO Image...' below or copy your retail game to Documents.";
+      sheet.message = @"No game disc images or extracted folders found in Documents.\n"
+                      @"Use 'Choose ISO Image...' below or copy your retail game to Documents.";
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:sheet animated:YES completion:nil];
@@ -759,12 +758,14 @@ namespace fnc::launcher {
 fs::path Run(const fs::path& documents) {
   bool finished = false;
   fs::path chosen;
+  bool* p_finished = &finished;
+  fs::path* p_chosen = &chosen;
   void (^showLauncherAndWait)(void) = ^{
     FNCLauncherController* root =
         [[FNCLauncherController alloc] initWithDocuments:documents
-                                                    done:[&](fs::path src) {
-                                                      chosen = std::move(src);
-                                                      finished = true;
+                                                    done:[p_chosen, p_finished](fs::path src) {
+                                                      *p_chosen = std::move(src);
+                                                      *p_finished = true;
                                                     }];
     UINavigationController* nav = [[FNCLauncherNavigation alloc] initWithRootViewController:root];
     nav.navigationBar.prefersLargeTitles = YES;
@@ -783,7 +784,7 @@ fs::path Run(const fs::path& documents) {
     window.rootViewController = nav;
     [window makeKeyAndVisible];
 
-    while (!finished) {
+    while (!*p_finished) {
       @autoreleasepool {
         [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture];
       }

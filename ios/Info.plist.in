@@ -53,6 +53,17 @@
 		</dict>
 	</array>
 
+	<key>CFBundleIconFile</key>
+	<string>AppIcon60x60</string>
+	<key>CFBundleIconFiles</key>
+	<array>
+		<string>AppIcon60x60</string>
+		<string>AppIcon76x76</string>
+		<string>AppIcon83.5x83.5</string>
+		<string>AppIcon1024x1024</string>
+		<string>AppIcon-1024</string>
+		<string>AppIcon</string>
+	</array>
 	<key>CFBundleIcons</key>
 	<dict>
 		<key>CFBundlePrimaryIcon</key>
@@ -60,9 +71,16 @@
 			<key>CFBundleIconFiles</key>
 			<array>
 				<string>AppIcon60x60</string>
+				<string>AppIcon76x76</string>
+				<string>AppIcon83.5x83.5</string>
+				<string>AppIcon1024x1024</string>
+				<string>AppIcon-1024</string>
+				<string>AppIcon</string>
 			</array>
 			<key>CFBundleIconName</key>
 			<string>AppIcon</string>
+			<key>UIPrerenderedIcon</key>
+			<true/>
 		</dict>
 	</dict>
 	<key>CFBundleIcons~ipad</key>
@@ -73,9 +91,15 @@
 			<array>
 				<string>AppIcon60x60</string>
 				<string>AppIcon76x76</string>
+				<string>AppIcon83.5x83.5</string>
+				<string>AppIcon1024x1024</string>
+				<string>AppIcon-1024</string>
+				<string>AppIcon</string>
 			</array>
 			<key>CFBundleIconName</key>
 			<string>AppIcon</string>
+			<key>UIPrerenderedIcon</key>
+			<true/>
 		</dict>
 	</dict>
 

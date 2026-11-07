@@ -179,8 +179,8 @@ endif()
 # -----------------------------------------------------------------------------
 #  Application Target (FNCReborn.app)
 # -----------------------------------------------------------------------------
-set(FNC_VERSION "1.0.0")
-set(FNC_VERSION_CODE "1")
+set(FNC_VERSION "1.0.7")
+set(FNC_VERSION_CODE "7")
 set(FNC_DISPLAY_NAME "Fight Night Champion")
 set(FNC_IOS_MIN "${CMAKE_OSX_DEPLOYMENT_TARGET}")
 set(FNC_EXECUTABLE "FNCReborn")
@@ -345,12 +345,23 @@ add_custom_target(fncreborn_package ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon1024x1024.png" "${_app}/AppIcon1024x1024.png"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon60x60@2x.png" "${_app}/AppIcon60x60@2x.png"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon60x60@3x.png" "${_app}/AppIcon60x60@3x.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon76x76@2x~ipad.png" "${_app}/AppIcon76x76@2x~ipad.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon83.5x83.5@2x~ipad.png" "${_app}/AppIcon83.5x83.5@2x~ipad.png"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/resources/AppIcon.png" "${_app}/AppIcon.png"
     COMMAND xcrun actool "${CMAKE_CURRENT_SOURCE_DIR}/resources/Assets.xcassets"
             --compile "${_app}" --platform iphoneos
             --minimum-deployment-target "${CMAKE_OSX_DEPLOYMENT_TARGET}"
             --target-device iphone --target-device ipad --app-icon AppIcon
             --output-partial-info-plist "${CMAKE_CURRENT_BINARY_DIR}/actool-partial.plist"
             --output-format human-readable-text --errors --warnings || true
+    COMMAND /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon60x60" "${_app}/Info.plist" || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon60x60" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles array" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:0 string AppIcon60x60" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:1 string AppIcon76x76" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:2 string AppIcon83.5x83.5" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:3 string AppIcon1024x1024" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:4 string AppIcon-1024" "${_app}/Info.plist" || true
+    COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:5 string AppIcon" "${_app}/Info.plist" || true
     COMMAND xattr -cr "${_app}" || true
     ${_sign_mvk_cmd}
     ${_sign_rexruntime}

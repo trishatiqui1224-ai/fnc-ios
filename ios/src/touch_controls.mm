@@ -319,17 +319,23 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
   _label.frame = _knobView.bounds;
 }
 
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+  return CGRectContainsPoint(CGRectInset(self.bounds, -15, -15), point);
+}
+
 - (void)updateWithTouch:(UITouch*)touch {
   CGPoint center = CGPointMake(self.bounds.size.width * 0.5, self.bounds.size.height * 0.5);
   CGPoint pt = [touch locationInView:self];
   CGFloat dx = pt.x - center.x;
   CGFloat dy = pt.y - center.y;
   CGFloat maxRadius = (MIN(self.bounds.size.width, self.bounds.size.height) * 0.5) - 18.0;
+  if (maxRadius < 15.0) maxRadius = 45.0;
   CGFloat dist = std::hypot(dx, dy);
 
-  if (dist > maxRadius) {
+  if (dist > maxRadius && dist > 0.0001f) {
     dx = (dx / dist) * maxRadius;
     dy = (dy / dist) * maxRadius;
+    dist = maxRadius;
     if (!_wasAtRim) {
       [_edgeHaptic impactOccurredWithIntensity:0.65];
       _wasAtRim = YES;
@@ -340,66 +346,56 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
 
   _knobView.center = CGPointMake(center.x + dx, center.y + dy);
 
-  float normX = std::fmax(-1.0f, std::fmin(1.0f, (float)(dx / maxRadius)));
-  float normY = std::fmax(-1.0f, std::fmin(1.0f, (float)(dy / maxRadius)));
+  float deadzone = _isFspcPunchStick ? 0.15f : 0.12f;
+  float rawMag = (float)(dist / maxRadius);
+  float scaledMag = 0.0f;
+  if (rawMag > deadzone) {
+    scaledMag = (rawMag - deadzone) / (1.0f - deadzone);
+    if (scaledMag > 1.0f) scaledMag = 1.0f;
+  }
+
+  float dirX = (dist > 0.0001f) ? (float)(dx / dist) : 0.0f;
+  float dirY = (dist > 0.0001f) ? (float)(dy / dist) : 0.0f;
+
+  float normX = dirX * scaledMag;
+  float normY = dirY * scaledMag;
 
   // Fight Night Champion Full Spectrum Punch Control (FSPC) Tuning
-  if (_isFspcPunchStick && g_straight_calibration) {
-    float mag = std::hypot(normX, normY);
-    // 1. Deadzone: < 0.25 sends 0 to prevent idle drift
-    if (mag < 0.25f) {
+  if (_isFspcPunchStick && g_straight_calibration && scaledMag > 0.001f) {
+    float angleRad = std::atan2(normY, normX);
+    float angleDeg = angleRad * (180.0f / 3.14159265f);
+    float deltaFromTop = std::fmod(angleDeg - (-90.0f) + 360.0f, 360.0f);
+    if (deltaFromTop > 180.0f) deltaFromTop -= 360.0f;
+
+    // Jab / Straight corridor: -24 to +24 deg from 12 o'clock
+    if (std::fabs(deltaFromTop) <= 24.0f) {
       normX = 0.0f;
+      normY = -scaledMag; // Pure upward snap for crisp Straight/Jab
+    }
+    // Right Hook: +90 deg (3 o'clock)
+    else if (std::fabs(deltaFromTop - 90.0f) <= 20.0f) {
+      normX = scaledMag;
       normY = 0.0f;
-    } else {
-      // 2. Cardinal Corridor Calibration:
-      // In screen coords, top (12 o'clock) is dx=0, dy < 0 (angle = -90 deg).
-      // Angle delta from top (12 o'clock):
-      float angleRad = std::atan2(normY, normX);
-      float angleDeg = angleRad * (180.0f / 3.14159265f);
-      float deltaFromTop = std::fmod(angleDeg - (-90.0f) + 360.0f, 360.0f);
-      if (deltaFromTop > 180.0f) deltaFromTop -= 360.0f;
-
-      // Jab / Straight corridor: -30 to +30 deg from 12 o'clock
-      if (std::fabs(deltaFromTop) <= 30.0f) {
-        normX = 0.0f;
-        normY = -mag; // Pure upward snap for crisp Straight/Jab
-      }
-      // Right Hook: +90 deg (3 o'clock)
-      else if (std::fabs(deltaFromTop - 90.0f) <= 22.0f) {
-        normX = mag;
-        normY = 0.0f;
-      }
-      // Left Hook: -90 deg (9 o'clock)
-      else if (std::fabs(deltaFromTop - (-90.0f)) <= 22.0f) {
-        normX = -mag;
-        normY = 0.0f;
-      }
-      // Right Uppercut: +145 deg (5 o'clock)
-      else if (std::fabs(deltaFromTop - 145.0f) <= 18.0f) {
-        normX = mag * 0.82f;
-        normY = mag * 0.57f;
-      }
-      // Left Uppercut: -145 deg (7 o'clock)
-      else if (std::fabs(deltaFromTop - (-145.0f)) <= 18.0f) {
-        normX = -mag * 0.82f;
-        normY = mag * 0.57f;
-      }
-
-      // 3. Velocity Gating & Outer Rim Saturation:
-      // Accelerate rapidly from deadzone to outer rim (r >= 0.88)
-      if (mag >= 0.65f) {
-        float boost = std::min(1.0f, 0.88f + (mag - 0.65f) * 0.35f);
-        float currentLen = std::hypot(normX, normY);
-        if (currentLen > 0.001f) {
-          normX = (normX / currentLen) * boost;
-          normY = (normY / currentLen) * boost;
-        }
-      }
+    }
+    // Left Hook: -90 deg (9 o'clock)
+    else if (std::fabs(deltaFromTop - (-90.0f)) <= 20.0f) {
+      normX = -scaledMag;
+      normY = 0.0f;
+    }
+    // Right Uppercut: +145 deg (5 o'clock)
+    else if (std::fabs(deltaFromTop - 145.0f) <= 18.0f) {
+      normX = scaledMag * 0.82f;
+      normY = scaledMag * 0.57f;
+    }
+    // Left Uppercut: -145 deg (7 o'clock)
+    else if (std::fabs(deltaFromTop - (-145.0f)) <= 18.0f) {
+      normX = -scaledMag * 0.82f;
+      normY = scaledMag * 0.57f;
     }
   }
 
-  FNC_SendAxis(_axisX, (Sint16)(normX * 32767.0f));
-  FNC_SendAxis(_axisY, (Sint16)(normY * 32767.0f));
+  FNC_SendAxis(_axisX, (Sint16)std::round(normX * 32767.0f));
+  FNC_SendAxis(_axisY, (Sint16)std::round(normY * 32767.0f));
 }
 
 - (void)resetStick {
@@ -457,7 +453,7 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
 
 #pragma mark - Main Overlay Container (Menu Nav + Ring Controls)
 
-@interface FNCVirtualControllerOverlay : UIView
+@interface FNCVirtualControllerOverlay : UIView <UIGestureRecognizerDelegate>
 @property(nonatomic, assign) BOOL menuNavigationMode;
 @end
 
@@ -616,6 +612,9 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
   auto addSwipe = ^(UISwipeGestureRecognizerDirection dir, SEL action) {
     UISwipeGestureRecognizer* swipe = [[UISwipeGestureRecognizer alloc] initWithTarget:self action:action];
     swipe.direction = dir;
+    swipe.cancelsTouchesInView = NO;
+    swipe.delaysTouchesBegan = NO;
+    swipe.delegate = self;
     [self addGestureRecognizer:swipe];
     return swipe;
   };
@@ -626,7 +625,35 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
 
   _doubleTapConfirm = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTapConfirm)];
   _doubleTapConfirm.numberOfTapsRequired = 2;
+  _doubleTapConfirm.cancelsTouchesInView = NO;
+  _doubleTapConfirm.delaysTouchesBegan = NO;
+  _doubleTapConfirm.delegate = self;
   [self addGestureRecognizer:_doubleTapConfirm];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+  if (!_menuNavigationMode) {
+    return NO;
+  }
+  CGPoint p = [touch locationInView:self];
+  if (CGRectContainsPoint(_leftStick.frame, p) ||
+      CGRectContainsPoint(_rightStick.frame, p) ||
+      CGRectContainsPoint(_dpadContainer.frame, p) ||
+      CGRectContainsPoint(_btnA.frame, p) ||
+      CGRectContainsPoint(_btnB.frame, p) ||
+      CGRectContainsPoint(_btnX.frame, p) ||
+      CGRectContainsPoint(_btnY.frame, p) ||
+      CGRectContainsPoint(_btnLT.frame, p) ||
+      CGRectContainsPoint(_btnLB.frame, p) ||
+      CGRectContainsPoint(_btnRT.frame, p) ||
+      CGRectContainsPoint(_btnRB.frame, p) ||
+      CGRectContainsPoint(_btnBack.frame, p) ||
+      CGRectContainsPoint(_btnStart.frame, p) ||
+      CGRectContainsPoint(_btnModeToggle.frame, p) ||
+      CGRectContainsPoint(_btnOpacityToggle.frame, p)) {
+    return NO;
+  }
+  return YES;
 }
 
 - (void)pulseButton:(int)sdlBtn {

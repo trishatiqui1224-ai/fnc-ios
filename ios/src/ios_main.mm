@@ -210,7 +210,13 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--cache_root=" + (caches / "rexglue").string());
   SetArgument(args, "--log_file=" + (docs / "logs" / "fnc.log").string());
   SetArgument(args, "--ios_iso_stream=true");
+  SetArgument(args, "--gpu_plugin=xenos");
+  SetArgument(args, "--gpu_backend=vulkan");
+  SetArgument(args, "--render_target_path_vulkan=fbo");
+  SetArgument(args, "--clear_memory_page_state=true");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
+  SetArgument(args, "--readback_resolve=fast");
+  SetArgument(args, "--gpu_sin_msaa=true");
 
   return args;
 }

@@ -51,17 +51,15 @@ CACHE_ANCHOR = r'''  switch (fetch.type) {
   }'''
 
 CACHE_NEW = r'''  // LOCAL PATCH - Fight Night Champion:
-  // If fetch.type != kTexture (2):
-  // When dword_1 != 0 && dword_2 != 0 (valid address and size, e.g. 10-frame VP6 video chroma planes
-  // 120D8002..11427002 and in-game buffers 12EF3097 / 13741054 / 133E7002), DO NOT skip binding:
-  // fall through into the normal kTexture binding path so TextureCache binds the texture!
-  // When dword_1 == 0 && dword_2 == 0 (empty zero slot 00004800 00000000 00000000 ...), return early.
-  if (fetch.type != xenos::FetchConstantType::kTexture) {
-    if (fetch.dword_1 != 0 && fetch.dword_2 != 0) {
-      // Valid texture descriptors marked type 0/1: fall through to bind as kTexture!
-    } else {
+  // Only kInvalidTexture (type 0) may be a game texture descriptor whose type bits
+  // were left unset. Type 1 is kInvalidVertex and type 3 is kVertex; interpreting
+  // either as a texture can sample arbitrary guest memory and produce corrupted art.
+  if (fetch.type == xenos::FetchConstantType::kInvalidTexture) {
+    if (fetch.dword_1 == 0 || fetch.dword_2 == 0) {
       return;
     }
+  } else if (fetch.type != xenos::FetchConstantType::kTexture) {
+    return;
   }'''
 
 VIDEO_RING_ANCHOR = r'''      if (key_changed) {
@@ -92,14 +90,16 @@ FETCH_PROMO_NEW = r'''  const RegisterFile& regs = *register_file_;
   (void)index_buffer_info;
 
   // LOCAL PATCH - Fight Night Champion (Title ID: 45410915):
-  // Promote valid uninitialized texture fetch constants (type != 2) in-place in register file
-  // so shader analysis, samplers, descriptor sets, and texture cache all recognize them as kTexture (type 2)
+  // Promote only candidate texture fetch constants (type 0) in-place in the register file.
+  // Type 1 is kInvalidVertex and type 3 is kVertex, so neither is safe to reinterpret as texture.
+  // This lets shader analysis, samplers, descriptor sets, and the texture cache recognize
+  // candidates as kTexture (type 2).
   for (uint32_t i = 0; i < 32; ++i) {
     uint32_t base_reg = XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + i * 6;
     uint32_t dword_0 = register_file_->values[base_reg + 0];
     uint32_t dword_1 = register_file_->values[base_reg + 1];
     uint32_t dword_2 = register_file_->values[base_reg + 2];
-    if ((dword_0 & 0x3u) != 2 && dword_1 != 0 && dword_2 != 0) {
+    if ((dword_0 & 0x3u) == 0 && dword_1 != 0 && dword_2 != 0) {
       register_file_->values[base_reg + 0] = (dword_0 & ~0x3u) | 0x2u;
     }
   }'''

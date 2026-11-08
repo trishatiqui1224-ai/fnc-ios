@@ -170,25 +170,24 @@ const std::vector<Section>& Sections() {
       {@"BOXER & RING FIXES", nil,
        {
            {@"clear_memory_page_state", OptionType::kSwitch, @"Clear memory page state",
-            @"Clears memory page states each frame. Keep OFF to prevent wiping GPU-resolved 3D render targets.",
-            @"false"},
+            @"Prevents warped boxer trunks, stretched gloves, and detached mesh vertices (Recommended ON).",
+            @"true"},
            {@"render_target_path", OptionType::kChoice, @"Render target path (Vulkan)",
-            @"FSI uses Fragment Shader Interlock (natively supported on Apple A19) for seamless 3-strip predicated tiling in 3D matches. FBO uses host framebuffers.",
-            @"fsi",
-            {{@"FSI (Fragment Shader Interlock - Native A19)", @"fsi"},
-             {@"FBO (Host Framebuffers)", @"fbo"}}},
+            @"FBO uses host framebuffers (fastest & most stable on iOS). FSI uses Fragment Shader Interlock.",
+            @"fbo",
+            {{@"FBO (Host Framebuffers - Recommended)", @"fbo"},
+             {@"FSI (Fragment Shader Interlock - Native A19)", @"fsi"}}},
            {@"texture_cache_limit", OptionType::kChoice, @"Texture cache limit (Memory)",
-            @"Limits texture streaming footprint to 1024/2048 MB to prevent texture starvation.",
-            @"1024",
-            {{@"1024 MB Soft / 2048 MB Hard (Recommended)", @"1024"},
+            @"Limits texture cache footprint to 384/768 MB to prevent iOS Jetsam memory kills on ring load.",
+            @"384",
+            {{@"384 MB Soft / 768 MB Hard (Recommended)", @"384"},
              {@"512 MB Soft / 1024 MB Hard", @"512"},
-             {@"384 MB Soft / 768 MB Hard", @"384"},
-             {@"2048 MB Soft / 4096 MB Hard", @"2048"}}},
+             {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Reflective Trunks/Sweat)",
-            @"Controls GPU-to-CPU texture resolve synchronization for dynamic sweat and fabric shine.",
-            @"fast",
-            {{@"Fast (Delayed 1-frame, zero stutter)", @"fast"},
-             {@"Off (Fastest)", @"none"},
+            @"Controls GPU-to-CPU texture resolve synchronization. Keep Off to prevent 4,200 resolve readback storms.",
+            @"none",
+            {{@"Off (Recommended / Prevents Readback Storm)", @"none"},
+             {@"Fast (Delayed 1-frame, 16 KB capped)", @"fast"},
              {@"Full (Synchronous)", @"full"}}},
        }, kTabGraphics},
 
@@ -321,10 +320,12 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
   // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 2) {
-    dict[@"settings_version"] = @"2";
-    dict[@"render_target_path"] = @"fsi";
-    dict[@"clear_memory_page_state"] = @"false";
+  if (ver < 3) {
+    dict[@"settings_version"] = @"3";
+    dict[@"render_target_path"] = @"fbo";
+    dict[@"clear_memory_page_state"] = @"true";
+    dict[@"readback_resolve"] = @"none";
+    dict[@"texture_cache_limit"] = @"384";
     WriteSettings(documents, dict);
   }
 
@@ -368,23 +369,24 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: enable Vulkan readback with 0 limit so all 3D match resolves are copied to guest RAM
-  NSString* rb = s[@"readback_resolve"] ?: @"fast";
+  // Readback resolve: default none to prevent 4,200 resolve readback storm on ring load
+  NSString* rb = s[@"readback_resolve"] ?: @"none";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
-  args.push_back("--vulkan_readback_resolve=true");
-  args.push_back("--ios_readback_max_kb=0");
+  BOOL do_rb = ![rb isEqualToString:@"none"];
+  args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));
+  args.push_back("--ios_readback_max_kb=16");
 
   // Pipelines
   BOOL async_pipe = [s[@"async_pipelines"] boolValue];
   args.push_back(std::string("--async_shader_compilation=") + (async_pipe ? "true" : "false"));
 
-  // Texture cache limit
-  NSString* tc = s[@"texture_cache_limit"] ?: @"1024";
+  // Texture cache limit: 384 MB Soft / 768 MB Hard / 128 MB RTT to prevent iOS Jetsam memory kills
+  NSString* tc = s[@"texture_cache_limit"] ?: @"384";
   int tc_int = [tc intValue];
-  if (tc_int <= 0) tc_int = 1024;
+  if (tc_int <= 0) tc_int = 384;
   args.push_back(std::string("--texture_cache_memory_limit_soft=") + std::to_string(tc_int));
   args.push_back(std::string("--texture_cache_memory_limit_hard=") + std::to_string(tc_int * 2));
-  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=512"));
+  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=128"));
 
   // Log level
   NSString* ll = s[@"log_level"] ?: @"info";
@@ -409,13 +411,14 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back(std::string("--fnc_tp_smooth=") + (s[@"fnc_tp_smooth"] ?: @"0.85").UTF8String);
 
   // Render target path
-  NSString* rtp = s[@"render_target_path"] ?: @"fsi";
+  NSString* rtp = s[@"render_target_path"] ?: @"fbo";
   args.push_back(std::string("--render_target_path_vulkan=") + rtp.UTF8String);
 
   // GPU invalid fetch constant bypass and rendering fixes
   args.push_back("--gpu_plugin=xenos");
   args.push_back("--gpu_backend=vulkan");
-  args.push_back("--gpu_allow_invalid_fetch_constants=true");
+  args.push_back("--vulkan_device=0");
+  args.push_back("--gpu_allow_invalid_fetch_constants=false");
   args.push_back("--gpu_sin_msaa=true");
 
   return args;

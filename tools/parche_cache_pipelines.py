@@ -85,7 +85,7 @@ XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
         '''  // PARCHE LOCAL - cache de pipelines del driver, guardada en disco
   // (tools/parche_cache_pipelines.py).
   void NfsmwCargarCacheVulkan(const std::filesystem::path& carpeta, uint32_t title_id, bool fsi);
-  void NfsmwGuardarCacheVulkan();
+  void NfsmwGuardarCacheVulkan(bool forzar = false);
   std::atomic<VkPipelineCache> nfsmw_cache_vulkan_{VK_NULL_HANDLE};
   std::filesystem::path nfsmw_cache_vulkan_ruta_;
   std::mutex nfsmw_cache_vulkan_guardar_;
@@ -155,7 +155,7 @@ XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
         '''    REXGPU_INFO("Created {} graphics pipelines from Vulkan storage ({} requested)",
                 created_pipeline_count.load(), pipeline_creations.size());
     // PARCHE LOCAL - cache de pipelines: lo recien compilado, al disco ya.
-    NfsmwGuardarCacheVulkan();
+    NfsmwGuardarCacheVulkan(true);
 ''',
     ),
     (
@@ -165,7 +165,7 @@ XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
         '''      fflush(pipeline_storage_file_);
       // PARCHE LOCAL - cache de pipelines: aqui, en este hilo, y no en el del
       // procesador de comandos, que solo lo pide (EndSubmission).
-      NfsmwGuardarCacheVulkan();
+      NfsmwGuardarCacheVulkan(false);
 ''',
     ),
     (
@@ -259,13 +259,21 @@ void VulkanPipelineCache::NfsmwCargarCacheVulkan(const std::filesystem::path& ca
               rex::path_to_utf8(nfsmw_cache_vulkan_ruta_.filename()));
 }
 
-void VulkanPipelineCache::NfsmwGuardarCacheVulkan() {
+void VulkanPipelineCache::NfsmwGuardarCacheVulkan(bool forzar) {
   std::lock_guard<std::mutex> lock(nfsmw_cache_vulkan_guardar_);
   const VkPipelineCache cache = nfsmw_cache_vulkan_.load(std::memory_order_acquire);
   if (cache == VK_NULL_HANDLE || nfsmw_cache_vulkan_ruta_.empty() ||
       !nfsmw_cache_vulkan_sucia_.exchange(false, std::memory_order_acq_rel)) {
     return;
   }
+  static uint64_t ultima_vez_guardado_ms = 0;
+  const uint64_t ahora_ms = NfsmwAhoraMs();
+  if (!forzar && ahora_ms - ultima_vez_guardado_ms < 5000) {
+    nfsmw_cache_vulkan_sucia_.store(true, std::memory_order_relaxed);
+    return;
+  }
+  ultima_vez_guardado_ms = ahora_ms;
+
   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
   if (!vulkan_device) {
     return;
@@ -276,13 +284,20 @@ void VulkanPipelineCache::NfsmwGuardarCacheVulkan() {
   if (dfn.vkGetPipelineCacheData(device, cache, &exact_size, nullptr) != VK_SUCCESS || exact_size < 32) {
     return;
   }
-  // Pad by 64 KB in case async shader threads add pipelines between calls
-  size_t alloc_size = exact_size + 64 * 1024;
+  // Pad buffer by 25% + 128 KB in case async shader threads add pipelines between calls
+  size_t alloc_size = exact_size + (exact_size / 4) + (128 * 1024);
   std::vector<uint8_t> datos(alloc_size);
   size_t retrieved_size = alloc_size;
-  const VkResult resultado = dfn.vkGetPipelineCacheData(device, cache, &retrieved_size, datos.data());
-  // Strictly require VK_SUCCESS. Never accept VK_INCOMPLETE or truncated data.
+  VkResult resultado = dfn.vkGetPipelineCacheData(device, cache, &retrieved_size, datos.data());
+  if (resultado == VK_INCOMPLETE) {
+    alloc_size = exact_size * 2 + (256 * 1024);
+    datos.resize(alloc_size);
+    retrieved_size = alloc_size;
+    resultado = dfn.vkGetPipelineCacheData(device, cache, &retrieved_size, datos.data());
+  }
+  // Strictly require VK_SUCCESS. If incomplete or error, defer to next quiet interval without corrupting cache.
   if (resultado != VK_SUCCESS || retrieved_size < 32) {
+    nfsmw_cache_vulkan_sucia_.store(true, std::memory_order_relaxed);
     return;
   }
   datos.resize(retrieved_size);
@@ -308,7 +323,7 @@ void VulkanPipelineCache::NfsmwGuardarCacheVulkan() {
 
 void VulkanPipelineCache::ShutdownShaderStorage() {
   // PARCHE LOCAL - cache de pipelines: lo que quede sin guardar.
-  NfsmwGuardarCacheVulkan();
+  NfsmwGuardarCacheVulkan(true);
 ''',
     ),
     (

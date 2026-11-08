@@ -216,11 +216,12 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--ios_iso_stream=true",
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
-      "--render_target_path_vulkan=fsi",
-      "--clear_memory_page_state=false",
-      "--readback_resolve=fast",
-      "--vulkan_readback_resolve=true",
-      "--ios_readback_max_kb=0",
+      "--vulkan_device=0",
+      "--render_target_path_vulkan=fbo",
+      "--clear_memory_page_state=true",
+      "--readback_resolve=none",
+      "--vulkan_readback_resolve=false",
+      "--ios_readback_max_kb=16",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -230,14 +231,14 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--fullscreen=true",
       "--resolution_scale=1",
       "--async_shader_compilation=true",
-      "--texture_cache_memory_limit_soft=1024",
-      "--texture_cache_memory_limit_hard=2048",
-      "--texture_cache_memory_limit_render_to_texture=512",
+      "--texture_cache_memory_limit_soft=384",
+      "--texture_cache_memory_limit_hard=768",
+      "--texture_cache_memory_limit_render_to_texture=128",
       "--audio_maxqframes=64",
       "--present_letterbox=true",
       "--mount_scratch=true",
       "--mount_cache=true",
-      "--gpu_allow_invalid_fetch_constants=true",
+      "--gpu_allow_invalid_fetch_constants=false",
   };
 
   // Merge settings from Launcher
@@ -255,15 +256,16 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--ios_iso_stream=true");
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
-  SetArgument(args, "--clear_memory_page_state=false");
-  SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
-  SetArgument(args, "--vulkan_readback_resolve=true");
-  SetArgument(args, "--ios_readback_max_kb=0");
-  SetArgument(args, "--readback_resolve=fast");
+  SetArgument(args, "--vulkan_device=0");
+  SetArgument(args, "--clear_memory_page_state=true");
+  SetArgument(args, "--gpu_allow_invalid_fetch_constants=false");
+  SetArgument(args, "--vulkan_readback_resolve=false");
+  SetArgument(args, "--ios_readback_max_kb=16");
+  SetArgument(args, "--readback_resolve=none");
   SetArgument(args, "--async_shader_compilation=true");
-  SetArgument(args, "--texture_cache_memory_limit_soft=1024");
-  SetArgument(args, "--texture_cache_memory_limit_hard=2048");
-  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=512");
+  SetArgument(args, "--texture_cache_memory_limit_soft=384");
+  SetArgument(args, "--texture_cache_memory_limit_hard=768");
+  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=128");
   SetArgument(args, "--gpu_sin_msaa=true");
 
   return args;

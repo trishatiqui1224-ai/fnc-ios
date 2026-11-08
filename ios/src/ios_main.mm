@@ -118,6 +118,22 @@ void PrewarmShaderCache(const fs::path& caches) {
   std::error_code ec;
   fs::create_directories(cacheDir, ec);
 
+  // Invalidate legacy shader caches for v1.0.14 update so fixed SPIR-V shaders recompile cleanly
+  fs::path v14_marker = cacheDir / ".v14_shader_cache_cleared";
+  if (!fs::exists(v14_marker, ec)) {
+    for (const auto& entry : fs::directory_iterator(cacheDir, ec)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".vkcache") {
+        fs::remove(entry.path(), ec);
+      }
+    }
+    FILE* f = fopen(v14_marker.string().c_str(), "w");
+    if (f) {
+      fputs("v14\n", f);
+      fclose(f);
+    }
+    fnc::boot::Trace("Cleaned legacy .vkcache files for v1.0.14 update");
+  }
+
   fs::path destVkCache = cacheDir / "45410915.fbo.vkcache";
   if (!fs::exists(destVkCache, ec)) {
     NSString* seed = [[NSBundle mainBundle] pathForResource:@"45410915.fbo" ofType:@"vkcache"];
@@ -219,9 +235,9 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--vulkan_device=0",
       "--render_target_path_vulkan=fbo",
       "--clear_memory_page_state=true",
-      "--readback_resolve=none",
-      "--vulkan_readback_resolve=false",
-      "--ios_readback_max_kb=16",
+      "--readback_resolve=fast",
+      "--vulkan_readback_resolve=true",
+      "--ios_readback_max_kb=1536",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -238,7 +254,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--present_letterbox=true",
       "--mount_scratch=true",
       "--mount_cache=true",
-      "--gpu_allow_invalid_fetch_constants=false",
+      "--gpu_allow_invalid_fetch_constants=true",
   };
 
   // Merge settings from Launcher
@@ -257,11 +273,12 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
   SetArgument(args, "--vulkan_device=0");
+  SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=true");
-  SetArgument(args, "--gpu_allow_invalid_fetch_constants=false");
-  SetArgument(args, "--vulkan_readback_resolve=false");
-  SetArgument(args, "--ios_readback_max_kb=16");
-  SetArgument(args, "--readback_resolve=none");
+  SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
+  SetArgument(args, "--vulkan_readback_resolve=true");
+  SetArgument(args, "--ios_readback_max_kb=1536");
+  SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--async_shader_compilation=true");
   SetArgument(args, "--texture_cache_memory_limit_soft=384");
   SetArgument(args, "--texture_cache_memory_limit_hard=768");

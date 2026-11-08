@@ -184,10 +184,10 @@ const std::vector<Section>& Sections() {
              {@"512 MB Soft / 1024 MB Hard", @"512"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Reflective Trunks/Sweat)",
-            @"Controls GPU-to-CPU texture resolve synchronization. Keep Off to prevent 4,200 resolve readback storms.",
-            @"none",
-            {{@"Off (Recommended / Prevents Readback Storm)", @"none"},
-             {@"Fast (Delayed 1-frame, 16 KB capped)", @"fast"},
+            @"Controls GPU-to-CPU texture resolve synchronization. Fast with 1536 KB limit resolves boxer materials while skipping 3.6 MB framebuffer storms.",
+            @"fast",
+            {{@"Fast (1536 KB Capped - Recommended)", @"fast"},
+             {@"Off (Disabled)", @"none"},
              {@"Full (Synchronous)", @"full"}}},
        }, kTabGraphics},
 
@@ -320,11 +320,11 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
   // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 3) {
-    dict[@"settings_version"] = @"3";
+  if (ver < 4) {
+    dict[@"settings_version"] = @"4";
     dict[@"render_target_path"] = @"fbo";
     dict[@"clear_memory_page_state"] = @"true";
-    dict[@"readback_resolve"] = @"none";
+    dict[@"readback_resolve"] = @"fast";
     dict[@"texture_cache_limit"] = @"384";
     WriteSettings(documents, dict);
   }
@@ -369,12 +369,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: default none to prevent 4,200 resolve readback storm on ring load
-  NSString* rb = s[@"readback_resolve"] ?: @"none";
+  // Readback resolve: default fast with 1536 KB limit to let boxer textures (960-1280 KB) resolve while skipping 3680 KB full frames
+  NSString* rb = s[@"readback_resolve"] ?: @"fast";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));
-  args.push_back("--ios_readback_max_kb=16");
+  args.push_back("--ios_readback_max_kb=1536");
 
   // Pipelines
   BOOL async_pipe = [s[@"async_pipelines"] boolValue];
@@ -418,7 +418,7 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   args.push_back("--gpu_plugin=xenos");
   args.push_back("--gpu_backend=vulkan");
   args.push_back("--vulkan_device=0");
-  args.push_back("--gpu_allow_invalid_fetch_constants=false");
+  args.push_back("--gpu_allow_invalid_fetch_constants=true");
   args.push_back("--gpu_sin_msaa=true");
 
   return args;

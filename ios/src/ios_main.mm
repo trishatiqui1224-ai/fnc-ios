@@ -113,39 +113,6 @@ fs::path TemporaryFolder() {
   return fs::path(tmp.UTF8String);
 }
 
-void PurgePipelineCaches(const fs::path& docs, const fs::path& caches) {
-  fs::path cacheDir = caches / "rexglue";
-  fs::path rexDataDir = docs / "rex_data";
-  std::error_code ec;
-  fs::create_directories(cacheDir, ec);
-
-  // Invalidate legacy shader and pipeline caches for v1.0.16 update so fixed SPIR-V shaders recompile cleanly
-  fs::path v16_marker = cacheDir / ".v16_clean_cache";
-  if (!fs::exists(v16_marker, ec)) {
-    auto purge_extensions = [](const fs::path& dir, std::error_code& ec) {
-      if (!fs::exists(dir, ec)) return;
-      for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
-        if (entry.is_regular_file()) {
-          auto ext = entry.path().extension();
-          if (ext == ".vkcache" || ext == ".xpso" || ext == ".bin" || ext == ".spv") {
-            fs::remove(entry.path(), ec);
-          }
-        }
-      }
-    };
-
-    purge_extensions(cacheDir, ec);
-    purge_extensions(rexDataDir, ec);
-
-    FILE* f = fopen(v16_marker.string().c_str(), "w");
-    if (f) {
-      fputs("v16\n", f);
-      fclose(f);
-    }
-    fnc::boot::Trace("Purged legacy pipeline caches (*.vkcache, *.xpso, *.bin, *.spv) for v1.0.16 clean rebuild");
-  }
-}
-
 void SetupFightNightRuntimeDirectories(const fs::path& docs, const fs::path& caches, const fs::path& app_support, const fs::path& tmp) {
   std::error_code ec;
   // 1. Sandbox roots
@@ -239,9 +206,9 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--vulkan_device=0",
       "--render_target_path_vulkan=fbo",
       "--clear_memory_page_state=false",
-      "--readback_resolve=none",
-      "--vulkan_readback_resolve=false",
-      "--ios_readback_max_kb=0",
+      "--readback_resolve=fast",
+      "--vulkan_readback_resolve=true",
+      "--ios_readback_max_kb=4096",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -280,9 +247,9 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=false");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
-  SetArgument(args, "--vulkan_readback_resolve=false");
-  SetArgument(args, "--ios_readback_max_kb=0");
-  SetArgument(args, "--readback_resolve=none");
+  SetArgument(args, "--vulkan_readback_resolve=true");
+  SetArgument(args, "--ios_readback_max_kb=4096");
+  SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--async_shader_compilation=false");
   SetArgument(args, "--texture_cache_memory_limit_soft=512");
   SetArgument(args, "--texture_cache_memory_limit_hard=1024");
@@ -331,10 +298,9 @@ int main(int argc, char* argv[]) {
     std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
     fnc::boot::Trace(std::string("---- start, build ") + timebuf + " (Fight Night Champion iOS ARM64)");
 
-    // Initialize runtime sandbox, environment, haptics & purge legacy pipeline caches
+    // Initialize runtime sandbox, environment, and haptics
     SetupFightNightRuntimeDirectories(docs, caches, app_support, tmp);
     IOSHaptics_Init(true);
-    PurgePipelineCaches(docs, caches);
 
     // Run native dark-mode UITableViewStyleInsetGrouped 6-tab launcher
     // Loops until a valid game source (.iso or extracted folder) is confirmed

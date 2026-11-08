@@ -179,8 +179,8 @@ endif()
 # -----------------------------------------------------------------------------
 #  Application Target (FNCReborn.app)
 # -----------------------------------------------------------------------------
-set(FNC_VERSION "1.0.16")
-set(FNC_VERSION_CODE "16")
+set(FNC_VERSION "1.0.17")
+set(FNC_VERSION_CODE "17")
 set(FNC_DISPLAY_NAME "Fight Night Champion")
 set(FNC_IOS_MIN "${CMAKE_OSX_DEPLOYMENT_TARGET}")
 set(FNC_EXECUTABLE "FNCReborn")

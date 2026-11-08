@@ -184,10 +184,10 @@ const std::vector<Section>& Sections() {
              {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (GPU-to-CPU Sync)",
-            @"Controls GPU-to-CPU texture resolve synchronization. Off prevents 3000+ CPU readbacks from clobbering GPU shared memory.",
-            @"none",
-            {{@"Off (Disabled - Recommended)", @"none"},
-             {@"Fast (Asynchronous)", @"fast"},
+            @"Controls GPU-to-CPU texture resolve synchronization. Fast synchronizes resolved boxer and ring floor textures up to 4096 KB.",
+            @"fast",
+            {{@"Fast (Asynchronous - Recommended)", @"fast"},
+             {@"Off (Disabled)", @"none"},
              {@"Full (Synchronous)", @"full"}}},
        }, kTabGraphics},
 
@@ -320,11 +320,11 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
   // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 6) {
-    dict[@"settings_version"] = @"6";
+  if (ver < 7) {
+    dict[@"settings_version"] = @"7";
     dict[@"render_target_path"] = @"fbo";
     dict[@"clear_memory_page_state"] = @"false";
-    dict[@"readback_resolve"] = @"none";
+    dict[@"readback_resolve"] = @"fast";
     dict[@"async_pipelines"] = @"false";
     dict[@"texture_cache_limit"] = @"512";
     WriteSettings(documents, dict);
@@ -370,12 +370,12 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: default none to prevent 3000+ CPU readbacks from clobbering GPU shared memory
-  NSString* rb = s[@"readback_resolve"] ?: @"none";
+  // Readback resolve: default fast to synchronize resolved textures up to 4096 KB (boxer & ring floor)
+  NSString* rb = s[@"readback_resolve"] ?: @"fast";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));
-  args.push_back("--ios_readback_max_kb=0");
+  args.push_back(std::string("--ios_readback_max_kb=") + (do_rb ? "4096" : "0"));
 
   // Pipelines: synchronous by default so one-shot ring floor bake does not skip draw calls
   BOOL async_pipe = [s[@"async_pipelines"] boolValue];

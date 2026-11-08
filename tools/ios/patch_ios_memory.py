@@ -204,80 +204,6 @@ VIEWS_NEW = '''#if REX_PLATFORM_IOS
 #endif
 '''
 
-MAP_INFO_ANCHOR = '''    //          - physical 4k pages
-    {
-        0xE0000000,
-        0xFFFFFFFF,
-        0x0000000100001000ull,
-    },'''
-
-MAP_INFO_NEW = '''    //          - physical 4k pages
-    {
-        0xE0000000,
-        0xFFFFFFFF,
-#if REX_PLATFORM_IOS
-        // LOCAL PATCH - iOS ARM64 (tools/ios/patch_ios_memory.py):
-        // Physical heap 0xE0000000 must map directly to 0x100000000 (offset 0)
-        // without +0x1000 so host addresses align with recompiled guest pointers on 16 KB pages.
-        0x0000000100000000ull,
-#else
-        0x0000000100001000ull,
-#endif
-    },'''
-
-OFFSET_ANCHOR = '''  uint32_t host_address_offset;
-  if (heap_base >= 0xE0000000 && rex::memory::allocation_granularity() > 0x1000) {
-    host_address_offset = 0x1000;
-  } else {
-    host_address_offset = 0;
-  }'''
-
-OFFSET_NEW = '''  uint32_t host_address_offset;
-#if REX_PLATFORM_IOS
-  // LOCAL PATCH - iOS ARM64 (tools/ios/patch_ios_memory.py):
-  // host_address_offset must be 0 so virtual_membase (0x70E0000000) and physical_membase (0x7100000000)
-  // align on 16 KB host pages and match recompiled guest pointers.
-  host_address_offset = 0;
-#else
-  if (heap_base >= 0xE0000000 && rex::memory::allocation_granularity() > 0x1000) {
-    host_address_offset = 0x1000;
-  } else {
-    host_address_offset = 0;
-  }
-#endif'''
-
-TRIGGER_ANCHOR = '''  // Access violation callbacks from the guest are triggered when the global
-  // critical region mutex is locked once.
-  //
-  // Will be rounded to physical page boundaries internally, so just pass 1 as
-  // the length - guranteed not to cross page boundaries also.
-  auto physical_heap = static_cast<PhysicalHeap*>(heap);
-  if (physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), virtual_address, 1,
-                                      is_write, false)) {
-    return true;
-  }'''
-
-TRIGGER_NEW = '''  // Access violation callbacks from the guest are triggered when the global
-  // critical region mutex is locked once.
-  auto physical_heap = static_cast<PhysicalHeap*>(heap);
-#if REX_PLATFORM_IOS
-  // LOCAL PATCH - iOS ARM64 16 KB page watch granularity (tools/ios/patch_ios_memory.py):
-  // Round to 16 KB host page boundary so all four 4 KB guest tiles in this host page are checked.
-  const uint32_t host_page_size = uint32_t(rex::memory::page_size());
-  const uint32_t host_page_base = virtual_address & ~(host_page_size - 1);
-  if (physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), host_page_base,
-                                      host_page_size, is_write, false)) {
-    return true;
-  }
-#else
-  // Will be rounded to physical page boundaries internally, so just pass 1 as
-  // the length - guranteed not to cross page boundaries also.
-  if (physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), virtual_address, 1,
-                                      is_write, false)) {
-    return true;
-  }
-#endif'''
-
 RECOVERY_ANCHOR = '''    if (allow_write) {
       size_t host_page_size = rex::memory::page_size();
       uintptr_t page_base =
@@ -298,11 +224,13 @@ RECOVERY_NEW = '''    if (allow_write) {
           reinterpret_cast<uintptr_t>(host_address) & ~(uintptr_t(host_page_size - 1));
 #if REX_PLATFORM_IOS
       // LOCAL PATCH - iOS ARM64 16 KB page watch invalidation (tools/ios/patch_ios_memory.py):
-      // On 16 KB host page kernels, unprotecting the 16 KB host page covers four 4 KB guest pages.
-      // Invalidate all 4 KB tiles in this 16 KB range so unwatched neighbors in shared_memory_buffer_
-      // are marked dirty and re-uploaded.
-      uint32_t guest_page_base = virtual_address & ~uint32_t(host_page_size - 1);
-      uint32_t phys_start = GetPhysicalAddress(guest_page_base);
+      // Because host_address_offset is 0x1000 on 0xE0000000, the 16 KB host page
+      // maps to guest virtual ((page_base - virtual_membase_) - 0x1000).
+      // Fire invalidation callbacks for the full 16 KB host page so unwatched neighbor tiles
+      // in shared_memory_buffer_ are marked dirty and uploaded without deadlocking.
+      uint32_t guest_page_start =
+          uint32_t((page_base - reinterpret_cast<uintptr_t>(virtual_membase_)) - 0x1000);
+      uint32_t phys_start = GetPhysicalAddress(guest_page_start);
       if (phys_start != UINT32_MAX) {
         for (auto invalidation_callback : physical_memory_invalidation_callbacks_) {
           invalidation_callback->first(invalidation_callback->second, phys_start,
@@ -327,9 +255,6 @@ BLOCKS = [
     ("src/core/memory_posix.cpp", "release the Mach memory entry", CLOSE_ANCHOR, CLOSE_NEW),
     ("src/core/memory_posix.cpp", "map views with vm_map", MAP_ANCHOR, MAP_NEW),
     ("src/system/xmemory.cpp", "guest views through MapFileView", VIEWS_ANCHOR, VIEWS_NEW),
-    ("src/system/xmemory.cpp", "align 0xE0000000 physical heap at offset 0 on iOS", MAP_INFO_ANCHOR, MAP_INFO_NEW),
-    ("src/system/xmemory.cpp", "set host_address_offset to 0 on iOS", OFFSET_ANCHOR, OFFSET_NEW),
-    ("src/system/xmemory.cpp", "trigger watches across 16 KB host page boundary", TRIGGER_ANCHOR, TRIGGER_NEW),
     ("src/system/xmemory.cpp", "invalidate 16 KB host page range on stale protection recovery", RECOVERY_ANCHOR, RECOVERY_NEW),
 ]
 

@@ -140,8 +140,8 @@ const std::vector<Section>& Sections() {
             @"Paired with Native Metal. Leave off for Vulkan/MoltenVK.",
             @"false"},
            {@"async_pipelines", OptionType::kSwitch, @"Compile pipelines in the background",
-            @"Compiles GPU pipelines asynchronously on worker threads to eliminate hitching.",
-            @"true"},
+            @"Disabled ensures one-shot render-to-texture passes (such as the ring floor canvas) draw synchronously.",
+            @"false"},
        }, kTabGraphics},
       {@"DISPLAY", nil,
        {
@@ -170,8 +170,8 @@ const std::vector<Section>& Sections() {
       {@"BOXER & RING FIXES", nil,
        {
            {@"clear_memory_page_state", OptionType::kSwitch, @"Clear memory page state",
-            @"Prevents warped boxer trunks, stretched gloves, and detached mesh vertices (Recommended ON).",
-            @"true"},
+            @"Disabled prevents wiping GPU-resolved render targets with stale CPU memory.",
+            @"false"},
            {@"render_target_path", OptionType::kChoice, @"Render target path (Vulkan)",
             @"FBO uses host framebuffers (fastest & most stable on iOS). FSI uses Fragment Shader Interlock.",
             @"fbo",
@@ -183,11 +183,11 @@ const std::vector<Section>& Sections() {
             {{@"512 MB Soft / 1024 MB Hard (Recommended)", @"512"},
              {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
-           {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Ring Floor / Boxer Canvas)",
-            @"Controls GPU-to-CPU texture resolve synchronization. Fast with 4096 KB limit resolves ring canvas & boxer materials while skipping 1280x720 framebuffer storms.",
-            @"fast",
-            {{@"Fast (4096 KB Capped - Recommended)", @"fast"},
-             {@"Off (Disabled)", @"none"},
+           {@"readback_resolve", OptionType::kChoice, @"Readback resolve (GPU-to-CPU Sync)",
+            @"Controls GPU-to-CPU texture resolve synchronization. Off prevents 3000+ CPU readbacks from clobbering GPU shared memory.",
+            @"none",
+            {{@"Off (Disabled - Recommended)", @"none"},
+             {@"Fast (Asynchronous)", @"fast"},
              {@"Full (Synchronous)", @"full"}}},
        }, kTabGraphics},
 
@@ -320,11 +320,12 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
   // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 5) {
-    dict[@"settings_version"] = @"5";
+  if (ver < 6) {
+    dict[@"settings_version"] = @"6";
     dict[@"render_target_path"] = @"fbo";
-    dict[@"clear_memory_page_state"] = @"true";
-    dict[@"readback_resolve"] = @"fast";
+    dict[@"clear_memory_page_state"] = @"false";
+    dict[@"readback_resolve"] = @"none";
+    dict[@"async_pipelines"] = @"false";
     dict[@"texture_cache_limit"] = @"512";
     WriteSettings(documents, dict);
   }
@@ -369,14 +370,14 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: default fast with 4096 KB limit to let ring floor canvas (2048-4096 KB) and boxer textures (960-1280 KB) resolve while skipping 3680 KB full frames
-  NSString* rb = s[@"readback_resolve"] ?: @"fast";
+  // Readback resolve: default none to prevent 3000+ CPU readbacks from clobbering GPU shared memory
+  NSString* rb = s[@"readback_resolve"] ?: @"none";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));
-  args.push_back("--ios_readback_max_kb=4096");
+  args.push_back("--ios_readback_max_kb=0");
 
-  // Pipelines
+  // Pipelines: synchronous by default so one-shot ring floor bake does not skip draw calls
   BOOL async_pipe = [s[@"async_pipelines"] boolValue];
   args.push_back(std::string("--async_shader_compilation=") + (async_pipe ? "true" : "false"));
 

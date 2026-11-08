@@ -7,7 +7,7 @@ vulkan_device = 0
 render_target_path_vulkan = "fbo"
 log_level = "info"
 log_file = "fnc.log"
-async_shader_compilation = true
+async_shader_compilation = false
 
 # Frame rate cap: 30 (original console), 60 (smooth default), 120 (Apple ProMotion)
 fnc_frame_rate = 60
@@ -18,10 +18,10 @@ swap_post_effect = "fxaa"
 
 # Graphics & Rendering fixes for Fight Night Champion
 gpu_allow_invalid_fetch_constants = true
-clear_memory_page_state = true
-vulkan_readback_resolve = true
-ios_readback_max_kb = 4096
-readback_resolve = "fast"
+clear_memory_page_state = false
+vulkan_readback_resolve = false
+ios_readback_max_kb = 0
+readback_resolve = "none"
 use_fuzzy_alpha_epsilon = true
 gamma_render_target_as_unorm16 = true
 native_2x_msaa = false

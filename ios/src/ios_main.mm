@@ -119,9 +119,9 @@ void PurgePipelineCaches(const fs::path& docs, const fs::path& caches) {
   std::error_code ec;
   fs::create_directories(cacheDir, ec);
 
-  // Invalidate legacy shader and pipeline caches for v1.0.15 update so fixed SPIR-V shaders recompile cleanly
-  fs::path v15_marker = cacheDir / ".v15_clean_cache";
-  if (!fs::exists(v15_marker, ec)) {
+  // Invalidate legacy shader and pipeline caches for v1.0.16 update so fixed SPIR-V shaders recompile cleanly
+  fs::path v16_marker = cacheDir / ".v16_clean_cache";
+  if (!fs::exists(v16_marker, ec)) {
     auto purge_extensions = [](const fs::path& dir, std::error_code& ec) {
       if (!fs::exists(dir, ec)) return;
       for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
@@ -137,12 +137,12 @@ void PurgePipelineCaches(const fs::path& docs, const fs::path& caches) {
     purge_extensions(cacheDir, ec);
     purge_extensions(rexDataDir, ec);
 
-    FILE* f = fopen(v15_marker.string().c_str(), "w");
+    FILE* f = fopen(v16_marker.string().c_str(), "w");
     if (f) {
-      fputs("v15\n", f);
+      fputs("v16\n", f);
       fclose(f);
     }
-    fnc::boot::Trace("Purged legacy pipeline caches (*.vkcache, *.xpso, *.bin, *.spv) for v1.0.15 clean rebuild");
+    fnc::boot::Trace("Purged legacy pipeline caches (*.vkcache, *.xpso, *.bin, *.spv) for v1.0.16 clean rebuild");
   }
 }
 
@@ -238,10 +238,10 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--gpu_backend=vulkan",
       "--vulkan_device=0",
       "--render_target_path_vulkan=fbo",
-      "--clear_memory_page_state=true",
-      "--readback_resolve=fast",
-      "--vulkan_readback_resolve=true",
-      "--ios_readback_max_kb=4096",
+      "--clear_memory_page_state=false",
+      "--readback_resolve=none",
+      "--vulkan_readback_resolve=false",
+      "--ios_readback_max_kb=0",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -250,7 +250,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--mnk_mode=false",
       "--fullscreen=true",
       "--resolution_scale=1",
-      "--async_shader_compilation=true",
+      "--async_shader_compilation=false",
       "--texture_cache_memory_limit_soft=512",
       "--texture_cache_memory_limit_hard=1024",
       "--texture_cache_memory_limit_render_to_texture=256",
@@ -278,12 +278,12 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--gpu_backend=vulkan");
   SetArgument(args, "--vulkan_device=0");
   SetArgument(args, "--render_target_path_vulkan=fbo");
-  SetArgument(args, "--clear_memory_page_state=true");
+  SetArgument(args, "--clear_memory_page_state=false");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
-  SetArgument(args, "--vulkan_readback_resolve=true");
-  SetArgument(args, "--ios_readback_max_kb=4096");
-  SetArgument(args, "--readback_resolve=fast");
-  SetArgument(args, "--async_shader_compilation=true");
+  SetArgument(args, "--vulkan_readback_resolve=false");
+  SetArgument(args, "--ios_readback_max_kb=0");
+  SetArgument(args, "--readback_resolve=none");
+  SetArgument(args, "--async_shader_compilation=false");
   SetArgument(args, "--texture_cache_memory_limit_soft=512");
   SetArgument(args, "--texture_cache_memory_limit_hard=1024");
   SetArgument(args, "--texture_cache_memory_limit_render_to_texture=256");

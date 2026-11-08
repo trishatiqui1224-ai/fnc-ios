@@ -249,14 +249,16 @@ FLOAT_PROP_ANCHOR = r'''  if (ext_1_2_KHR_shader_float_controls) {
   }'''
 
 FLOAT_PROP_NEW = r'''  if (ext_1_2_KHR_shader_float_controls) {
+    // LOCAL PATCH - Fight Night Champion Fix B:
+    // Override float controls: disable signed zero/Inf/NaN preservation (flushes NaNs)
+    // and force denorm flush to zero for Apple Silicon / MoltenVK compatibility.
+    properties_1_2_KHR_shader_float_controls.shaderSignedZeroInfNanPreserveFloat32 = VK_FALSE;
+    properties_1_2_KHR_shader_float_controls.shaderDenormFlushToZeroFloat32 = VK_TRUE;
     XE_UI_VULKAN_PROPERTY_2(properties_1_2_KHR_shader_float_controls,
                             shaderSignedZeroInfNanPreserveFloat32);
     XE_UI_VULKAN_PROPERTY_2(properties_1_2_KHR_shader_float_controls,
                             shaderDenormFlushToZeroFloat32);
     XE_UI_VULKAN_PROPERTY_2(properties_1_2_KHR_shader_float_controls, shaderRoundingModeRTEFloat32);
-    // LOCAL PATCH - Fight Night Champion Fix B:
-    // Override float controls: disable signed zero/Inf/NaN preservation (flushes NaNs)
-    // and force denorm flush to zero for Apple Silicon / MoltenVK compatibility.
     device->properties_.shaderSignedZeroInfNanPreserveFloat32 = false;
     device->properties_.shaderDenormFlushToZeroFloat32 = true;
   }'''
@@ -289,19 +291,30 @@ COLOR_SANITIZE_NEW = r'''    value_to_store = builder_->createCompositeInsert(
   // LOCAL PATCH - Fight Night Champion Fix B:
   // Sanitize pixel shader color outputs (oC0..oC3) before storing to the render target.
   // Xbox 360 Xenos flushes NaNs to 0.0 and clamps color exports.
-  // Replace NaN with 0.0 and clamp to finite range [-65504.0, 65504.0] to eliminate neon green blocks.
-  if (result.storage_target == InstructionStorageTarget::kColor && target_num_components == 4) {
-    id_vector_temp_util_.clear();
-    id_vector_temp_util_.resize(4, builder_->makeFloatConstant(-65504.0f));
-    spv::Id const_clamp_min = builder_->makeCompositeConstant(type_float4_, id_vector_temp_util_);
-    id_vector_temp_util_.clear();
-    id_vector_temp_util_.resize(4, builder_->makeFloatConstant(65504.0f));
-    spv::Id const_clamp_max = builder_->makeCompositeConstant(type_float4_, id_vector_temp_util_);
+  // Replace NaN with 0.0 and clamp to finite range [-65504.0, 65504.0] across all component counts (1..4).
+  if (result.storage_target == InstructionStorageTarget::kColor &&
+      target_num_components >= 1 && target_num_components <= 4) {
+    spv::Id comp_type = type_float_vectors_[target_num_components - 1];
+    spv::Id bool_type = type_bool_vectors_[target_num_components - 1];
+    spv::Id zero_val = const_float_vectors_0_[target_num_components - 1];
 
-    spv::Id is_nan = builder_->createUnaryOp(spv::OpIsNan, type_bool4_, value_to_store);
+    spv::Id const_clamp_min, const_clamp_max;
+    if (target_num_components == 1) {
+      const_clamp_min = builder_->makeFloatConstant(-65504.0f);
+      const_clamp_max = builder_->makeFloatConstant(65504.0f);
+    } else {
+      id_vector_temp_util_.clear();
+      id_vector_temp_util_.resize(target_num_components, builder_->makeFloatConstant(-65504.0f));
+      const_clamp_min = builder_->makeCompositeConstant(comp_type, id_vector_temp_util_);
+      id_vector_temp_util_.clear();
+      id_vector_temp_util_.resize(target_num_components, builder_->makeFloatConstant(65504.0f));
+      const_clamp_max = builder_->makeCompositeConstant(comp_type, id_vector_temp_util_);
+    }
+
+    spv::Id is_nan = builder_->createUnaryOp(spv::OpIsNan, bool_type, value_to_store);
     spv::Id clean_val =
-        builder_->createTriOp(spv::OpSelect, type_float4_, is_nan, const_float4_0_, value_to_store);
-    value_to_store = builder_->createTriBuiltinCall(type_float4_, ext_inst_glsl_std_450_, GLSLstd450FClamp,
+        builder_->createTriOp(spv::OpSelect, comp_type, is_nan, zero_val, value_to_store);
+    value_to_store = builder_->createTriBuiltinCall(comp_type, ext_inst_glsl_std_450_, GLSLstd450FClamp,
                                                     clean_val, const_clamp_min, const_clamp_max);
   }
 

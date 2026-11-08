@@ -28,11 +28,17 @@ without it the image looks washed out). Full-screen images it does not read.
 THE CHANGE
 ==========
 
-A resolve larger than ios_readback_max_kb (default 256 KB; a 1280x720 image is
+A resolve larger than ios_readback_max_kb (default 4096 KB; a 1280x720 image is
 ~3.6 MB, a luminance target a few KB) is not read back: the function returns
 right after the resolve, so neither the GPU copy to the readback buffer nor
 the memcpy happen. The resolve itself (into the GPU's copy of guest memory,
 which textures read) is untouched. 0 = read everything back, as before.
+
+Depth resolves (kD24FS8) are skipped from CPU readback so raw D32_SFLOAT bytes
+never overwrite guest memory pages.
+Full-screen resolves (1280x720 / 3680 KB) are always skipped from readback.
+Ring floor canvas resolves (1024x1024 4096 KB, 512x1024 4032 KB, 1024x512 2048 KB)
+and boxer material targets (960-1280 KB) are read back to guest RAM.
 
 Every 5 s the log says how many resolves were read back and how many skipped,
 and the largest of each, so the threshold can be checked.
@@ -46,12 +52,16 @@ from patch_engine import run  # noqa: E402
 
 F = "src/graphics/vulkan/command_processor.cpp"
 
-CVAR_ANCHOR = '''REXCVAR_DECLARE(bool, medir_paquetes);  // idem
+CVAR_ANCHOR = '''REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                    "Read render-to-texture results on the CPU")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 '''
-CVAR_NEW = '''REXCVAR_DECLARE(bool, medir_paquetes);  // idem
+CVAR_NEW = '''REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                    "Read render-to-texture results on the CPU")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 #if REX_PLATFORM_IOS
 // LOCAL PATCH - iOS (tools/ios/patch_ios_readback_limit.py).
-REXCVAR_DEFINE_INT32(ios_readback_max_kb, 64, "GPU",
+REXCVAR_DEFINE_INT32(ios_readback_max_kb, 4096, "GPU",
                      "iOS: resolves larger than this (KB) are not read back to guest memory; "
                      "0 = read back everything");
 #endif
@@ -67,9 +77,32 @@ LIMIT_NEW = '''  ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXC
     return true;
   }
 #if REX_PLATFORM_IOS
-  // LOCAL PATCH - iOS: only small resolves go back to guest memory
-  // (tools/ios/patch_ios_readback_limit.py).
+  // LOCAL PATCH - Fight Night Champion iOS Readback Filter (tools/ios/patch_ios_readback_limit.py):
+  // 1. Skip depth resolves (kD24FS8) to prevent corrupting guest texture memory with D32_SFLOAT bytes.
+  // 2. Skip full-screen 1280x720 (3680 KB) framebuffers to prevent readback storms.
+  // 3. Allow ring floor canvas targets (1024x1024 4096 KB, 512x1024 4032 KB, 1024x512 2048 KB) and boxer targets through.
   {
+    const auto copy_control = register_file_->Get<reg::RB_COPY_CONTROL>();
+    const bool is_depth = copy_control.copy_src_select >= xenos::kMaxColorRenderTargets;
+    if (is_depth) {
+      return true;
+    }
+
+    draw_util::ResolveInfo resolve_info;
+    uint32_t res_width = 0, res_height = 0;
+    if (draw_util::GetResolveInfo(*register_file_, *memory_,
+                                  texture_cache_->draw_resolution_scale_x(),
+                                  texture_cache_->draw_resolution_scale_y(),
+                                  false, false, resolve_info)) {
+      res_width = resolve_info.coordinate_info.width_div_8 * 8;
+      res_height = resolve_info.height_div_8 * 8;
+    }
+
+    const bool is_fullscreen = (res_width == 1280 && res_height == 720) || (written_length == 3680 * 1024);
+    if (is_fullscreen) {
+      return true;
+    }
+
     static uint64_t kept = 0, skipped = 0;
     static uint32_t kept_max = 0, skipped_max = 0;
     static auto since = std::chrono::steady_clock::now();

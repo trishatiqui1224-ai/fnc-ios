@@ -20,7 +20,7 @@ swap_post_effect = "fxaa"
 gpu_allow_invalid_fetch_constants = true
 clear_memory_page_state = true
 vulkan_readback_resolve = true
-ios_readback_max_kb = 1536
+ios_readback_max_kb = 4096
 readback_resolve = "fast"
 use_fuzzy_alpha_epsilon = true
 gamma_render_target_as_unorm16 = true
@@ -28,9 +28,9 @@ native_2x_msaa = false
 gpu_sin_msaa = true
 
 # Texture cache limits in MB for iOS unified memory:
-texture_cache_memory_limit_soft = 384
-texture_cache_memory_limit_hard = 768
-texture_cache_memory_limit_render_to_texture = 128
+texture_cache_memory_limit_soft = 512
+texture_cache_memory_limit_hard = 1024
+texture_cache_memory_limit_render_to_texture = 256
 
 # Camera & controls
 fnc_fp_enable = true

@@ -113,34 +113,36 @@ fs::path TemporaryFolder() {
   return fs::path(tmp.UTF8String);
 }
 
-void PrewarmShaderCache(const fs::path& caches) {
+void PurgePipelineCaches(const fs::path& docs, const fs::path& caches) {
   fs::path cacheDir = caches / "rexglue";
+  fs::path rexDataDir = docs / "rex_data";
   std::error_code ec;
   fs::create_directories(cacheDir, ec);
 
-  // Invalidate legacy shader caches for v1.0.14 update so fixed SPIR-V shaders recompile cleanly
-  fs::path v14_marker = cacheDir / ".v14_shader_cache_cleared";
-  if (!fs::exists(v14_marker, ec)) {
-    for (const auto& entry : fs::directory_iterator(cacheDir, ec)) {
-      if (entry.is_regular_file() && entry.path().extension() == ".vkcache") {
-        fs::remove(entry.path(), ec);
+  // Invalidate legacy shader and pipeline caches for v1.0.15 update so fixed SPIR-V shaders recompile cleanly
+  fs::path v15_marker = cacheDir / ".v15_clean_cache";
+  if (!fs::exists(v15_marker, ec)) {
+    auto purge_extensions = [](const fs::path& dir, std::error_code& ec) {
+      if (!fs::exists(dir, ec)) return;
+      for (const auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
+        if (entry.is_regular_file()) {
+          auto ext = entry.path().extension();
+          if (ext == ".vkcache" || ext == ".xpso" || ext == ".bin" || ext == ".spv") {
+            fs::remove(entry.path(), ec);
+          }
+        }
       }
-    }
-    FILE* f = fopen(v14_marker.string().c_str(), "w");
+    };
+
+    purge_extensions(cacheDir, ec);
+    purge_extensions(rexDataDir, ec);
+
+    FILE* f = fopen(v15_marker.string().c_str(), "w");
     if (f) {
-      fputs("v14\n", f);
+      fputs("v15\n", f);
       fclose(f);
     }
-    fnc::boot::Trace("Cleaned legacy .vkcache files for v1.0.14 update");
-  }
-
-  fs::path destVkCache = cacheDir / "45410915.fbo.vkcache";
-  if (!fs::exists(destVkCache, ec)) {
-    NSString* seed = [[NSBundle mainBundle] pathForResource:@"45410915.fbo" ofType:@"vkcache"];
-    if (seed && [[NSFileManager defaultManager] fileExistsAtPath:seed]) {
-      fs::copy_file(fs::path(seed.UTF8String), destVkCache, fs::copy_options::overwrite_existing, ec);
-      fnc::boot::Trace("Prewarmed Vulkan pipeline cache installed to Caches/rexglue/45410915.fbo.vkcache");
-    }
+    fnc::boot::Trace("Purged legacy pipeline caches (*.vkcache, *.xpso, *.bin, *.spv) for v1.0.15 clean rebuild");
   }
 }
 
@@ -189,6 +191,8 @@ void SetupFightNightRuntimeDirectories(const fs::path& docs, const fs::path& cac
   setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 1);
   setenv("MVK_CONFIG_PREFILL_METAL_COMMAND_BUFFERS", "1", 1);
   setenv("MVK_CONFIG_RESUME_LOST_DEVICE", "0", 1);
+  setenv("MVK_CONFIG_FULL_IMAGE_VIEW_SWIZZLE", "1", 1);
+  setenv("MVK_CONFIG_FAST_MATH_ENABLED", "1", 1);
 
   // 6. SDL iOS orientation & touch hint setup
   setenv("SDL_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight", 1);
@@ -237,7 +241,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--clear_memory_page_state=true",
       "--readback_resolve=fast",
       "--vulkan_readback_resolve=true",
-      "--ios_readback_max_kb=1536",
+      "--ios_readback_max_kb=4096",
       "--gpu_sin_msaa=true",
       "--ios_async_submits=true",
       "--ios_xma_starve_reset=false",
@@ -247,9 +251,9 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--fullscreen=true",
       "--resolution_scale=1",
       "--async_shader_compilation=true",
-      "--texture_cache_memory_limit_soft=384",
-      "--texture_cache_memory_limit_hard=768",
-      "--texture_cache_memory_limit_render_to_texture=128",
+      "--texture_cache_memory_limit_soft=512",
+      "--texture_cache_memory_limit_hard=1024",
+      "--texture_cache_memory_limit_render_to_texture=256",
       "--audio_maxqframes=64",
       "--present_letterbox=true",
       "--mount_scratch=true",
@@ -277,12 +281,12 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--clear_memory_page_state=true");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
   SetArgument(args, "--vulkan_readback_resolve=true");
-  SetArgument(args, "--ios_readback_max_kb=1536");
+  SetArgument(args, "--ios_readback_max_kb=4096");
   SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--async_shader_compilation=true");
-  SetArgument(args, "--texture_cache_memory_limit_soft=384");
-  SetArgument(args, "--texture_cache_memory_limit_hard=768");
-  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=128");
+  SetArgument(args, "--texture_cache_memory_limit_soft=512");
+  SetArgument(args, "--texture_cache_memory_limit_hard=1024");
+  SetArgument(args, "--texture_cache_memory_limit_render_to_texture=256");
   SetArgument(args, "--gpu_sin_msaa=true");
 
   return args;
@@ -298,6 +302,9 @@ int main(int argc, char* argv[]) {
     std::signal(SIGABRT, CrashSignalHandler);
     std::signal(SIGILL, CrashSignalHandler);
     std::signal(SIGFPE, CrashSignalHandler);
+
+    setenv("MVK_CONFIG_FULL_IMAGE_VIEW_SWIZZLE", "1", 1);
+    setenv("MVK_CONFIG_FAST_MATH_ENABLED", "1", 1);
 
     const fs::path docs = DocumentsFolder();
     const fs::path caches = CachesFolder();
@@ -324,10 +331,10 @@ int main(int argc, char* argv[]) {
     std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
     fnc::boot::Trace(std::string("---- start, build ") + timebuf + " (Fight Night Champion iOS ARM64)");
 
-    // Initialize runtime sandbox, environment, haptics & prewarmed shaders
+    // Initialize runtime sandbox, environment, haptics & purge legacy pipeline caches
     SetupFightNightRuntimeDirectories(docs, caches, app_support, tmp);
     IOSHaptics_Init(true);
-    PrewarmShaderCache(caches);
+    PurgePipelineCaches(docs, caches);
 
     // Run native dark-mode UITableViewStyleInsetGrouped 6-tab launcher
     // Loops until a valid game source (.iso or extracted folder) is confirmed

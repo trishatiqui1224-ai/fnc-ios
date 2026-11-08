@@ -178,15 +178,15 @@ const std::vector<Section>& Sections() {
             {{@"FBO (Host Framebuffers - Recommended)", @"fbo"},
              {@"FSI (Fragment Shader Interlock - Native A19)", @"fsi"}}},
            {@"texture_cache_limit", OptionType::kChoice, @"Texture cache limit (Memory)",
-            @"Limits texture cache footprint to 384/768 MB to prevent iOS Jetsam memory kills on ring load.",
-            @"384",
-            {{@"384 MB Soft / 768 MB Hard (Recommended)", @"384"},
-             {@"512 MB Soft / 1024 MB Hard", @"512"},
+            @"Limits texture cache footprint to 512/1024 MB to prevent iOS Jetsam memory kills on ring load.",
+            @"512",
+            {{@"512 MB Soft / 1024 MB Hard (Recommended)", @"512"},
+             {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
-           {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Reflective Trunks/Sweat)",
-            @"Controls GPU-to-CPU texture resolve synchronization. Fast with 1536 KB limit resolves boxer materials while skipping 3.6 MB framebuffer storms.",
+           {@"readback_resolve", OptionType::kChoice, @"Readback resolve (Ring Floor / Boxer Canvas)",
+            @"Controls GPU-to-CPU texture resolve synchronization. Fast with 4096 KB limit resolves ring canvas & boxer materials while skipping 1280x720 framebuffer storms.",
             @"fast",
-            {{@"Fast (1536 KB Capped - Recommended)", @"fast"},
+            {{@"Fast (4096 KB Capped - Recommended)", @"fast"},
              {@"Off (Disabled)", @"none"},
              {@"Full (Synchronous)", @"full"}}},
        }, kTabGraphics},
@@ -235,9 +235,9 @@ const std::vector<Section>& Sections() {
        {
            {@"texture_cache_limit", OptionType::kChoice, @"Texture Cache Limit",
             @"Restricts texture pool footprint to stay safely below iOS jetsam limits.",
-            @"1024",
-            {{@"Recommended (1024 / 2048 MB)", @"1024"},
-             {@"Mobile Safe (512 / 1024 MB)", @"512"},
+            @"512",
+            {{@"Recommended (512 / 1024 MB)", @"512"},
+             {@"Power User (1024 / 2048 MB)", @"1024"},
              {@"Low-RAM (384 / 768 MB)", @"384"},
              {@"Maximum (2048 / 3072 MB)", @"2048"}}},
            {@"pin_perf_cores", OptionType::kSwitch, @"Pin Guest Threads to Performance Cores",
@@ -320,12 +320,12 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
   // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 4) {
-    dict[@"settings_version"] = @"4";
+  if (ver < 5) {
+    dict[@"settings_version"] = @"5";
     dict[@"render_target_path"] = @"fbo";
     dict[@"clear_memory_page_state"] = @"true";
     dict[@"readback_resolve"] = @"fast";
-    dict[@"texture_cache_limit"] = @"384";
+    dict[@"texture_cache_limit"] = @"512";
     WriteSettings(documents, dict);
   }
 
@@ -369,24 +369,24 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: default fast with 1536 KB limit to let boxer textures (960-1280 KB) resolve while skipping 3680 KB full frames
+  // Readback resolve: default fast with 4096 KB limit to let ring floor canvas (2048-4096 KB) and boxer textures (960-1280 KB) resolve while skipping 3680 KB full frames
   NSString* rb = s[@"readback_resolve"] ?: @"fast";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));
-  args.push_back("--ios_readback_max_kb=1536");
+  args.push_back("--ios_readback_max_kb=4096");
 
   // Pipelines
   BOOL async_pipe = [s[@"async_pipelines"] boolValue];
   args.push_back(std::string("--async_shader_compilation=") + (async_pipe ? "true" : "false"));
 
-  // Texture cache limit: 384 MB Soft / 768 MB Hard / 128 MB RTT to prevent iOS Jetsam memory kills
-  NSString* tc = s[@"texture_cache_limit"] ?: @"384";
+  // Texture cache limit: 512 MB Soft / 1024 MB Hard / 256 MB RTT to prevent iOS Jetsam memory kills
+  NSString* tc = s[@"texture_cache_limit"] ?: @"512";
   int tc_int = [tc intValue];
-  if (tc_int <= 0) tc_int = 384;
+  if (tc_int <= 0) tc_int = 512;
   args.push_back(std::string("--texture_cache_memory_limit_soft=") + std::to_string(tc_int));
   args.push_back(std::string("--texture_cache_memory_limit_hard=") + std::to_string(tc_int * 2));
-  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=128"));
+  args.push_back(std::string("--texture_cache_memory_limit_render_to_texture=256"));
 
   // Log level
   NSString* ll = s[@"log_level"] ?: @"info";

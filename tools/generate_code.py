@@ -13,6 +13,8 @@ import subprocess
 import sys
 import tarfile
 
+from patch_codegen_pack_alias import patch_generated_dir
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 XEX_CANDIDATES = [
     ROOT / "xex" / "default.xex",
@@ -48,6 +50,12 @@ def check_and_extract_cache():
                     tar.extractall(path=ROOT)
             sources_cmake = GENERATED_DIR / "sources.cmake"
             if sources_cmake.exists():
+                patched = patch_generated_dir(GENERATED_DIR)
+                if patched:
+                    print(
+                        f"[Codegen] Fixed {patched} stale vpkuwus destination/source alias blocks "
+                        "from the pre-generated cache"
+                    )
                 print(f"[Codegen] Successfully restored generated sources from {c.name}!")
                 return True
     return False
@@ -135,6 +143,10 @@ def generate_code(xex_path=None, sdk_path=None, rexglue_bin=None, force_codegen=
     sources_cmake = GENERATED_DIR / "sources.cmake"
     if not sources_cmake.is_file():
         fail(f"Codegen did not produce expected sources file: {sources_cmake}")
+
+    patched = patch_generated_dir(GENERATED_DIR)
+    if patched:
+        print(f"[Codegen] Fixed {patched} vpkuwus destination/source alias blocks")
 
     print(f"\n[Codegen Complete] Recompiled C++ sources generated at: {GENERATED_DIR}")
 

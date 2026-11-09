@@ -8,6 +8,8 @@
 #include <rex/logging.h>
 #include <rex/ppc.h>
 
+#include "fnc_pch.h"
+
 #include <atomic>
 
 REXCVAR_DEFINE_DOUBLE(fnc_frame_rate, 60.0, "Game",
@@ -55,7 +57,7 @@ extern "C" void sub_82E3E5A0(PPCContext& __restrict ctx, uint8_t* base) {
     if (operation == 0) {
       static std::atomic<bool> logged{false};
       if (!logged.exchange(true, std::memory_order_relaxed)) {
-        REXLOG_WARNING(
+        REXLOG_WARN(
             "[FNC-async] request 0x{:08X} has no operation object (caller LR 0x{:08X}, r11 0x{:08X}); "
             "marking it complete",
             request, static_cast<uint32_t>(ctx.lr), ctx.r11.u32);
@@ -65,7 +67,7 @@ extern "C" void sub_82E3E5A0(PPCContext& __restrict ctx, uint8_t* base) {
       return;
     }
   } else {
-    REXLOG_WARNING("[FNC-async] null request passed to sub_82E3E5A0; skipping cleanup");
+    REXLOG_WARN("[FNC-async] null request passed to sub_82E3E5A0; skipping cleanup");
     ctx.r3.u64 = 0;
     return;
   }

@@ -1,6 +1,6 @@
 # =============================================================================
 #  Fight Night Champion - Native iOS Static Recompilation App ("FNC Reborn iOS")
-#  Xbox 360 Title ID: 45410915 / Media ID: 2DC50868 (arm64, iOS 16.0+)
+#  Xbox 360 Title ID: 45410915 / Media ID: 2DC50868 (arm64, iOS 16.3+)
 #
 #  Configure: cmake --preset ios
 #  Build:     cmake --build --preset ios
@@ -22,7 +22,7 @@ if(NOT CMAKE_OSX_SYSROOT)
     set(CMAKE_OSX_SYSROOT "iphoneos")
 endif()
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "16.0")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "16.3")
 endif()
 set(REX_PLATFORM_IOS 1 CACHE BOOL "Build for iOS platform" FORCE)
 add_compile_definitions(REX_PLATFORM_IOS=1)

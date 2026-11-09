@@ -3,7 +3,7 @@
     "configurePresets": [
         {
             "name": "ios",
-            "displayName": "iOS arm64 (iOS 16.0+)",
+            "displayName": "iOS arm64 (iOS 16.3+)",
             "generator": "Ninja",
             "binaryDir": "$env{HOME}/Library/Caches/fnc-ios/build",
             "cacheVariables": {
@@ -11,7 +11,7 @@
                 "CMAKE_SYSTEM_PROCESSOR": "arm64",
                 "CMAKE_OSX_SYSROOT": "iphoneos",
                 "CMAKE_OSX_ARCHITECTURES": "arm64",
-                "CMAKE_OSX_DEPLOYMENT_TARGET": "16.0",
+                "CMAKE_OSX_DEPLOYMENT_TARGET": "16.3",
                 "REX_PLATFORM_IOS": "1",
                 "CMAKE_BUILD_TYPE": "Release"
             }

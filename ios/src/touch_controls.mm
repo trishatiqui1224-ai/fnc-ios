@@ -28,7 +28,8 @@ static SDL_Joystick* g_virtual_pad = nullptr;
 static UIView* g_overlay_container = nil;
 static UILabel* g_fps_label = nil;
 static bool g_straight_calibration = true;
-static int g_boxing_style = 0; // 0 = Full Spectrum (Flick Pad), 1 = Classic Pad
+static int g_boxing_style = 0; // Flick pad, button punching, or buttons only.
+static unsigned g_move_buttons = 0;
 
 // SDL Gamepad Button Indices
 enum FNCButtonIndex : int {
@@ -99,9 +100,21 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
   }
 }
 
+static void FNC_SendDirection(int button, bool pressed) {
+  unsigned bit = 1u << (button - kFNCButtonDPadUp);
+  if (pressed) g_move_buttons |= bit;
+  else g_move_buttons &= ~bit;
+  FNC_SendAxis(kFNCAxisLeftX, (int(bool(g_move_buttons & 8)) -
+                              int(bool(g_move_buttons & 4))) * 32767);
+  FNC_SendAxis(kFNCAxisLeftY, (int(bool(g_move_buttons & 2)) -
+                              int(bool(g_move_buttons & 1))) * 32767);
+}
+
 #pragma mark - Glassmorphic Button View
 
 @interface FNCGlassButton : UIControl
+@property(nonatomic, assign) BOOL digitalMovement;
+- (void)setPressedState:(BOOL)pressed;
 @property(nonatomic, copy) NSString* titleText;
 @property(nonatomic, copy) NSString* subtitleText;
 @property(nonatomic, strong) UIColor* accentColor;
@@ -111,7 +124,6 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
 @end
 
 @implementation FNCGlassButton {
-  UIVisualEffectView* _blurView;
   UILabel* _titleLabel;
   UILabel* _subLabel;
   CAShapeLayer* _ringLayer;
@@ -138,17 +150,10 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
     self.multipleTouchEnabled = YES;
     self.backgroundColor = [UIColor clearColor];
 
-    UIBlurEffect* blur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
-    _blurView = [[UIVisualEffectView alloc] initWithEffect:blur];
-    _blurView.userInteractionEnabled = NO;
-    _blurView.clipsToBounds = YES;
-    _blurView.alpha = 0.78;
-    [self addSubview:_blurView];
-
     _ringLayer = [CAShapeLayer layer];
     _ringLayer.fillColor = [UIColor colorWithWhite:0.08 alpha:0.35].CGColor;
     _ringLayer.strokeColor = [_accentColor colorWithAlphaComponent:0.65].CGColor;
-    _ringLayer.lineWidth = 1.6;
+    _ringLayer.lineWidth = 1.0;
     [self.layer addSublayer:_ringLayer];
 
     _titleLabel = [[UILabel alloc] init];
@@ -174,15 +179,14 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
   [super layoutSubviews];
   CGFloat radius = _isPill ? (self.bounds.size.height * 0.5)
                            : (MIN(self.bounds.size.width, self.bounds.size.height) * 0.5);
-  _blurView.frame = self.bounds;
-  _blurView.layer.cornerRadius = radius;
-
   UIBezierPath* path = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(self.bounds, 1.0, 1.0)
                                                   cornerRadius:radius - 1.0];
   _ringLayer.path = path.CGPath;
   _ringLayer.frame = self.bounds;
 
-  if (_subLabel) {
+  _subLabel.hidden = _subtitleText.length == 0;
+  _subLabel.text = _subtitleText;
+  if (_subLabel && !_subLabel.hidden) {
     _titleLabel.frame = CGRectMake(0, 4, self.bounds.size.width, self.bounds.size.height * 0.58);
     _subLabel.frame = CGRectMake(0, self.bounds.size.height * 0.56, self.bounds.size.width, 12);
   } else {
@@ -191,11 +195,14 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
 }
 
 - (void)setPressedState:(BOOL)pressed {
+  if (self.digitalMovement) {
+    FNC_SendDirection(_sdlButton, pressed);
+  }
   if (pressed) {
     [_haptic impactOccurred];
     if (_sdlTriggerAxis >= 0) {
       FNC_SendAxis(_sdlTriggerAxis, 32767);
-    } else if (_sdlButton >= 0) {
+    } else if (_sdlButton >= 0 && !self.digitalMovement) {
       FNC_SendButton(_sdlButton, true);
     }
     [UIView animateWithDuration:0.06 animations:^{
@@ -207,14 +214,14 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
   } else {
     if (_sdlTriggerAxis >= 0) {
       FNC_SendAxis(_sdlTriggerAxis, 0);
-    } else if (_sdlButton >= 0) {
+    } else if (_sdlButton >= 0 && !self.digitalMovement) {
       FNC_SendButton(_sdlButton, false);
     }
     [UIView animateWithDuration:0.12 animations:^{
       self.transform = CGAffineTransformIdentity;
       self->_ringLayer.fillColor = [UIColor colorWithWhite:0.08 alpha:0.35].CGColor;
       self->_ringLayer.strokeColor = [self->_accentColor colorWithAlphaComponent:0.65].CGColor;
-      self->_ringLayer.lineWidth = 1.6;
+      self->_ringLayer.lineWidth = 1.0;
     }];
   }
 }
@@ -746,8 +753,22 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
   _btnRT.frame = CGRectMake(W - rightPad - shW, topPad + 4, shW, shH);
   _btnRB.frame = CGRectMake(W - rightPad - (shW * 2) - 10, topPad + 4, shW, shH);
 
-  if (_menuNavigationMode) {
-    // MENU NAVIGATION MODE: Prominent Left D-Pad + Large Right Action Cluster
+  const BOOL buttonsOnly = g_boxing_style == 2;
+  const BOOL digitalMovement = buttonsOnly && !_menuNavigationMode;
+  _leftStick.hidden = buttonsOnly;
+  _rightStick.hidden = g_boxing_style != 0;
+  for (FNCGlassButton* direction in @[_dpadUp, _dpadDown, _dpadLeft, _dpadRight]) {
+    if (direction.digitalMovement != digitalMovement) {
+      [direction setPressedState:NO];
+      direction.digitalMovement = digitalMovement;
+    }
+  }
+  _btnA.subtitleText = _menuNavigationMode ? @"OK" : nil;
+  _btnB.subtitleText = _menuNavigationMode ? @"BACK" : nil;
+  [_btnA setNeedsLayout];
+  [_btnB setNeedsLayout];
+  if (_menuNavigationMode || buttonsOnly) {
+    // Large directional pad and face buttons.
     CGFloat dpadSize = 148.0;
     _dpadContainer.frame = CGRectMake(leftPad + 16, H - botPad - dpadSize - 24, dpadSize, dpadSize);
     _leftStick.frame = CGRectMake(leftPad + dpadSize + 34, H - botPad - 110, 100, 100);
@@ -773,7 +794,7 @@ static inline void FNC_SendAxis(int axis, Sint16 value) {
 
     // Compact Diamond Action Cluster arched around Right Stick
     CGFloat bSize = 42.0;
-    CGFloat clusterX = W - rightPad - stickSize - 74;
+    CGFloat clusterX = W - rightPad - (_rightStick.hidden ? 90 : stickSize + 74);
     CGFloat clusterY = H - botPad - 76;
     _btnA.frame = CGRectMake(clusterX - bSize*0.5, clusterY + 26, bSize, bSize);
     _btnB.frame = CGRectMake(clusterX + 28,        clusterY - bSize*0.5, bSize, bSize);

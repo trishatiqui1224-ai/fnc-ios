@@ -5,6 +5,9 @@
 #pragma once
 
 #include <rex/rex_app.h>
+#if REX_PLATFORM_IOS
+#include "lifecycle.h"
+#endif
 
 extern const rex::PPCImageInfo PPCImageConfig;
 
@@ -33,6 +36,12 @@ class FncApp : public rex::ReXApp {
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
   void OnPostSetup() override {
+#if REX_PLATFORM_IOS
+    if (auto* graphics = runtime()->graphics_system()) {
+      nfsmw::lifecycle::Install([graphics] { graphics->Pause(); },
+                               [graphics] { graphics->Resume(); });
+    }
+#endif
     // Crash reporter; the sampling profiler only runs when a "profile_on" file sits next to
     // FNCReborn.exe.
     fnc_prof::Start(PPCImageConfig.func_mappings);
@@ -44,7 +53,9 @@ class FncApp : public rex::ReXApp {
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
-  // void OnShutdown() override {}
+#if REX_PLATFORM_IOS
+  void OnShutdown() override { nfsmw::lifecycle::ClearCallbacks(); }
+#endif
   void OnConfigurePaths(rex::PathConfig& paths) override {
 #if defined(REX_PLATFORM_IOS)
     // On iOS, paths.game_data_root is explicitly passed via --game_data_root from ios_main.mm

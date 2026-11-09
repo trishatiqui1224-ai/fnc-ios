@@ -244,12 +244,8 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
   SetArgument(args, "--gpu_plugin=xenos");
   SetArgument(args, "--gpu_backend=vulkan");
   SetArgument(args, "--vulkan_device=0");
-  SetArgument(args, "--render_target_path_vulkan=fbo");
   SetArgument(args, "--clear_memory_page_state=false");
   SetArgument(args, "--gpu_allow_invalid_fetch_constants=true");
-  SetArgument(args, "--vulkan_readback_resolve=true");
-  SetArgument(args, "--ios_readback_max_kb=4096");
-  SetArgument(args, "--readback_resolve=fast");
   SetArgument(args, "--async_shader_compilation=false");
   SetArgument(args, "--texture_cache_memory_limit_soft=512");
   SetArgument(args, "--texture_cache_memory_limit_hard=1024");
@@ -355,7 +351,12 @@ int main(int argc, char* argv[]) {
     }
 
     // Install touch controls & FPS counter
-    fnc::touch::Install();
+    auto touchSettings = fnc::launcher::ReadSettings(docs);
+    fnc::touch::SetBoxingStyle([touchSettings[@"boxing_style"] intValue]);
+    fnc::touch::SetStraightCalibrationEnabled([touchSettings[@"straight_calibration"] boolValue]);
+    if ([touchSettings[@"touch_controls"] boolValue]) {
+      fnc::touch::Install();
+    }
     fnc::touch::InstallFpsCounter();
 
     // Create App

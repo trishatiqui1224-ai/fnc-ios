@@ -256,6 +256,12 @@ void Install(std::function<void()> pause, std::function<void()> resume) {
   StartStallWatchdog();
 }
 
+void ClearCallbacks() {
+  g_pause = {};
+  g_resume = {};
+  g_paused.store(false, std::memory_order_relaxed);
+}
+
 void KeepMetalViewWindowSized() {
   static Class metal = NSClassFromString(@"SDL_uikitmetalview");
 #if __has_feature(objc_arc)

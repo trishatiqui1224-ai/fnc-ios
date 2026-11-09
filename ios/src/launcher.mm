@@ -184,11 +184,12 @@ const std::vector<Section>& Sections() {
              {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (GPU-to-CPU Sync)",
-            @"Controls GPU-to-CPU texture resolve synchronization. Fast synchronizes resolved boxer and ring floor textures up to 4096 KB.",
-            @"fast",
-            {{@"Fast (Asynchronous - Recommended)", @"fast"},
+            @"Controls when GPU-rendered textures are copied back for the game to read. Full keeps boxer and ring-floor textures current.",
+            @"full",
+            {{@"Full (Accurate - Recommended)", @"full"},
+             {@"Fast (One frame delayed)", @"fast"},
              {@"Off (Disabled)", @"none"},
-             {@"Full (Synchronous)", @"full"}}},
+             }},
        }, kTabGraphics},
 
       // ---------------------------------------------------------------------
@@ -317,17 +318,19 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   }
 
   // Automatic settings migration:
-  // Upgrade legacy settings (< v2):
-  // - default render_target_path to "fsi" (Fragment Shader Interlock for Apple A19)
-  // - default clear_memory_page_state to "false" (prevent wiping GPU-resolved render targets)
+  // Upgrade legacy settings (< v8):
+  // - retain the FBO render-target path and guest memory page state defaults
+  // - use immediate resolve readback for Fight Night's CPU-generated boxer/ring textures
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 7) {
-    dict[@"settings_version"] = @"7";
-    dict[@"render_target_path"] = @"fbo";
-    dict[@"clear_memory_page_state"] = @"false";
-    dict[@"readback_resolve"] = @"fast";
-    dict[@"async_pipelines"] = @"false";
-    dict[@"texture_cache_limit"] = @"512";
+  if (ver < 8) {
+    dict[@"settings_version"] = @"8";
+    if (ver < 7) {
+      dict[@"render_target_path"] = @"fbo";
+      dict[@"clear_memory_page_state"] = @"false";
+      dict[@"async_pipelines"] = @"false";
+      dict[@"texture_cache_limit"] = @"512";
+    }
+    dict[@"readback_resolve"] = @"full";
     WriteSettings(documents, dict);
   }
 
@@ -371,8 +374,8 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: default fast to synchronize resolved textures up to 4096 KB (boxer & ring floor)
-  NSString* rb = s[@"readback_resolve"] ?: @"fast";
+  // Readback resolve: immediate copy for Fight Night's reused CPU scratch-buffer textures.
+  NSString* rb = s[@"readback_resolve"] ?: @"full";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));

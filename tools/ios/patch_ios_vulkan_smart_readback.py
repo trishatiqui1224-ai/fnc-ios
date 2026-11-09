@@ -80,21 +80,21 @@ DELAY_NEW = '''  bool use_delayed_sync =
 #endif
 '''
 
-EVICT_ANCHOR = '''      EvictOldReadbackBuffers(readback_buffers_);
-      EvictOldReadbackBuffers(memexport_readback_buffers_);
+EVICT_ANCHOR = '''    EvictOldReadbackBuffers(readback_buffers_);
+    EvictOldReadbackBuffers(memexport_readback_buffers_);
 '''
-EVICT_NEW = '''      EvictOldReadbackBuffers(readback_buffers_);
-      EvictOldReadbackBuffers(memexport_readback_buffers_);
+EVICT_NEW = '''    EvictOldReadbackBuffers(readback_buffers_);
+    EvictOldReadbackBuffers(memexport_readback_buffers_);
 #if REX_PLATFORM_IOS
-      if (!ios_readback_resolve_trackers_.empty() &&
-          frame_current_ > kReadbackBufferEvictionAgeFrames) {
-        const uint64_t tracker_floor = frame_current_ - kReadbackBufferEvictionAgeFrames;
-        for (auto it = ios_readback_resolve_trackers_.begin();
-             it != ios_readback_resolve_trackers_.end();) {
-          it = it->second.frame < tracker_floor ? ios_readback_resolve_trackers_.erase(it)
-                                                : std::next(it);
-        }
+    if (!ios_readback_resolve_trackers_.empty() &&
+        frame_current_ > kReadbackBufferEvictionAgeFrames) {
+      const uint64_t tracker_floor = frame_current_ - kReadbackBufferEvictionAgeFrames;
+      for (auto it = ios_readback_resolve_trackers_.begin();
+           it != ios_readback_resolve_trackers_.end();) {
+        it = it->second.frame < tracker_floor ? ios_readback_resolve_trackers_.erase(it)
+                                              : std::next(it);
       }
+    }
 #endif
 '''
 

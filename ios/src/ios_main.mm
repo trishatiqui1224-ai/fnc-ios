@@ -203,6 +203,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--ios_iso_stream=true",
       "--gpu_plugin=xenos",
       "--gpu_backend=vulkan",
+      "--ios_log_movie_shader_disasm=true",
       "--vulkan_device=0",
       "--render_target_path_vulkan=fbo",
       "--clear_memory_page_state=false",

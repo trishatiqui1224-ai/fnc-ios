@@ -184,9 +184,10 @@ const std::vector<Section>& Sections() {
              {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (GPU-to-CPU Sync)",
-            @"Fast keeps gameplay responsive. Full uses immediate GPU readback and can reduce frame rate.",
-            @"fast",
-            {{@"Fast (Recommended)", @"fast"},
+            @"Smart reads stable recurring resolves one frame later and keeps one-shot texture construction immediate.",
+            @"smart",
+            {{@"Smart (Accurate and responsive)", @"smart"},
+             {@"Fast (One frame delayed)", @"fast"},
              {@"Full (Immediate, slower)", @"full"},
              {@"Off (Disabled)", @"none"},
             }},
@@ -318,18 +319,17 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   }
 
   // Automatic settings migration:
-  // Upgrade legacy settings (< v9): keep the responsive readback default after older settings
-  // versions may have selected synchronous readback for Fight Night's GPU-generated textures.
+  // Upgrade legacy settings (< v10) to frequency-aware readback for Vulkan.
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 9) {
-    dict[@"settings_version"] = @"9";
+  if (ver < 10) {
+    dict[@"settings_version"] = @"10";
     if (ver < 7) {
       dict[@"render_target_path"] = @"fbo";
       dict[@"clear_memory_page_state"] = @"false";
       dict[@"async_pipelines"] = @"false";
       dict[@"texture_cache_limit"] = @"512";
     }
-    dict[@"readback_resolve"] = @"fast";
+    dict[@"readback_resolve"] = @"smart";
     WriteSettings(documents, dict);
   }
 
@@ -373,8 +373,8 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: delayed GPU-to-CPU copy to avoid synchronous stalls.
-  NSString* rb = s[@"readback_resolve"] ?: @"fast";
+  // Readback resolve: sync for irregular construction passes, delayed for stable recurring targets.
+  NSString* rb = s[@"readback_resolve"] ?: @"smart";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));

@@ -73,6 +73,7 @@ IOS_PATCHES = [
     "patch_ios_register_check",
     "patch_ios_texture_descriptors",
     "patch_ios_readback_limit",
+    "patch_ios_vulkan_smart_readback",
     "patch_ios_suboptimal",
     "patch_ios_surface_reattach",
     "patch_ios_paint_suspend",

@@ -184,12 +184,12 @@ const std::vector<Section>& Sections() {
              {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (GPU-to-CPU Sync)",
-            @"Controls when GPU-rendered textures are copied back for the game to read. Full keeps boxer and ring-floor textures current.",
-            @"full",
-            {{@"Full (Accurate - Recommended)", @"full"},
-             {@"Fast (One frame delayed)", @"fast"},
+            @"Fast keeps gameplay responsive. Full uses immediate GPU readback and can reduce frame rate.",
+            @"fast",
+            {{@"Fast (Recommended)", @"fast"},
+             {@"Full (Immediate, slower)", @"full"},
              {@"Off (Disabled)", @"none"},
-             }},
+            }},
        }, kTabGraphics},
 
       // ---------------------------------------------------------------------
@@ -318,19 +318,18 @@ NSMutableDictionary<NSString*, NSString*>* ReadSettings(const fs::path& document
   }
 
   // Automatic settings migration:
-  // Upgrade legacy settings (< v8):
-  // - retain the FBO render-target path and guest memory page state defaults
-  // - use immediate resolve readback for Fight Night's CPU-generated boxer/ring textures
+  // Upgrade legacy settings (< v9): keep the responsive readback default after older settings
+  // versions may have selected synchronous readback for Fight Night's GPU-generated textures.
   int ver = [dict[@"settings_version"] intValue];
-  if (ver < 8) {
-    dict[@"settings_version"] = @"8";
+  if (ver < 9) {
+    dict[@"settings_version"] = @"9";
     if (ver < 7) {
       dict[@"render_target_path"] = @"fbo";
       dict[@"clear_memory_page_state"] = @"false";
       dict[@"async_pipelines"] = @"false";
       dict[@"texture_cache_limit"] = @"512";
     }
-    dict[@"readback_resolve"] = @"full";
+    dict[@"readback_resolve"] = @"fast";
     WriteSettings(documents, dict);
   }
 
@@ -374,8 +373,8 @@ std::vector<std::string> SettingsArguments(const fs::path& documents) {
   BOOL clr = [s[@"clear_memory_page_state"] boolValue];
   args.push_back(std::string("--clear_memory_page_state=") + (clr ? "true" : "false"));
 
-  // Readback resolve: immediate copy for Fight Night's reused CPU scratch-buffer textures.
-  NSString* rb = s[@"readback_resolve"] ?: @"full";
+  // Readback resolve: delayed GPU-to-CPU copy to avoid synchronous stalls.
+  NSString* rb = s[@"readback_resolve"] ?: @"fast";
   args.push_back(std::string("--readback_resolve=") + rb.UTF8String);
   BOOL do_rb = ![rb isEqualToString:@"none"];
   args.push_back(std::string("--vulkan_readback_resolve=") + (do_rb ? "true" : "false"));

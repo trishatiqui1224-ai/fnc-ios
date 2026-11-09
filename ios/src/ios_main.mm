@@ -206,7 +206,7 @@ std::vector<std::string> BuildGameArguments(const fs::path& docs, const fs::path
       "--vulkan_device=0",
       "--render_target_path_vulkan=fbo",
       "--clear_memory_page_state=false",
-      "--readback_resolve=full",
+      "--readback_resolve=fast",
       "--vulkan_readback_resolve=true",
       "--ios_readback_max_kb=4096",
       "--gpu_sin_msaa=true",

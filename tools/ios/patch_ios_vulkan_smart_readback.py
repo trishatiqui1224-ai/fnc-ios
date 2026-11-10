@@ -56,9 +56,18 @@ KEY_NEW = '''  bool is_scaled = texture_cache_->IsDrawResolutionScaled();
     }
     const uint32_t occurrence = tracker.count++;
     const int32_t smart_frames = REXCVAR_GET(readback_resolve_smart_frames);
+    // Keep FNC's ring-floor canvases and boxer material targets on the immediate
+    // path. patch_ios_readback_limit.py explicitly preserves these for guest-RAM
+    // texture construction; delaying them after they become steady can make the
+    // next draw sample the previous frame's blank or incomplete texture.
+    const bool ios_fnc_texture_resolve =
+        (written_length >= 960u * 1024u && written_length <= 1280u * 1024u) ||
+        written_length == 2048u * 1024u || written_length == 4032u * 1024u ||
+        written_length == 4096u * 1024u;
     ios_smart_delayed = smart_frames >= 0 && occurrence < 8 &&
                         occurrence < tracker.count_prev &&
-                        tracker.steady_frames >= uint32_t(smart_frames);
+                        tracker.steady_frames >= uint32_t(smart_frames) &&
+                        !ios_fnc_texture_resolve;
     if (ios_smart_delayed && REXCVAR_GET(readback_resolve_smart_skip_steady)) {
       return true;
     }

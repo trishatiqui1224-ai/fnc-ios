@@ -184,7 +184,7 @@ const std::vector<Section>& Sections() {
              {@"384 MB Soft / 768 MB Hard (Low-RAM)", @"384"},
              {@"1024 MB Soft / 2048 MB Hard", @"1024"}}},
            {@"readback_resolve", OptionType::kChoice, @"Readback resolve (GPU-to-CPU Sync)",
-            @"Smart reads stable recurring resolves one frame later and keeps one-shot texture construction immediate.",
+            @"Smart keeps ring-floor and boxer texture resolves immediate, delaying other stable recurring targets.",
             @"smart",
             {{@"Smart (Accurate and responsive)", @"smart"},
              {@"Fast (One frame delayed)", @"fast"},

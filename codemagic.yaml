@@ -39,14 +39,6 @@ workflows:
           cd ../rexglue-sdk-ios
           sdk_tag=v0.10.0
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$sdk_tag^{commit}")"
-          # SDK preparation fetches all upstream tags. Keep version discovery
-          # on the pinned release in this build's local SDK checkout.
-          git tag --list 'v*' | while IFS= read -r tag; do
-            if [ "$tag" != "$sdk_tag" ]; then
-              git tag --delete "$tag"
-            fi
-          done
-          test "$(git describe --tags --match 'v*')" = "$sdk_tag"
       - name: 'Verify Codegen (Fail-Fast)'
         script: |
           set -euo pipefail

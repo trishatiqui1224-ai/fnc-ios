@@ -176,6 +176,20 @@ def safeguard_rex_version(sdk):
             print("  [safeguard] rex_version fallback pinned to 0.10.0")
 
 
+def scope_rex_version_to_sdk(sdk):
+    """Resolve the SDK version from its own checkout when embedded in FNC."""
+    cmake_file = sdk / "CMakeLists.txt"
+    content = cmake_file.read_text(encoding="utf-8")
+    call = "rex_resolve_version(REXGLUE_FULL_VERSION\n"
+    scoped_call = call + '    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"\n'
+    if scoped_call in content:
+        return
+    if content.count(call) != 1:
+        sys.exit("[ERROR] Could not locate the ReXGlue version resolver call")
+    cmake_file.write_text(content.replace(call, scoped_call), encoding="utf-8")
+    print("  [safeguard] ReXGlue version lookup uses the SDK checkout")
+
+
 def safeguard_fpscr(sdk):
     """Avoid redefined FPSCR in ppc context."""
     ctx_h = sdk / "include" / "rex" / "ppc" / "context.h"
@@ -361,6 +375,7 @@ def main():
     step(7, "Extra safeguards")
     safeguard_vulkan_loader(sdk)
     safeguard_rex_version(sdk)
+    scope_rex_version_to_sdk(sdk)
     safeguard_fpscr(sdk)
     safeguard_resolve_warning(sdk)
     safeguard_preset_layer(sdk)

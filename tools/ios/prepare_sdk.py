@@ -120,6 +120,7 @@ IOS_PATCHES = [
     "patch_ios_cap_30_at_120",
     "patch_ios_host_stack",
     "patch_ios_fnc_fixes",
+    "patch_ios_capture_trace",
 ]
 
 

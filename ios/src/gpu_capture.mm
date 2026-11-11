@@ -4,12 +4,28 @@
 #import <UIKit/UIKit.h>
 
 #include <rex/logging.h>
+#include <dlfcn.h>
 
 #include "gpu_capture.h"
 #include "launcher.h"
 
 namespace {
 constexpr int64_t kCaptureMs = 200;
+
+using SetVulkanTraceEnabled = void (*)(bool);
+
+SetVulkanTraceEnabled FindVulkanTraceControl() {
+  NSString* path = [NSBundle.mainBundle.privateFrameworksPath
+      stringByAppendingPathComponent:@"librexgpu-xenos.dylib"];
+  void* handle = dlopen(path.fileSystemRepresentation, RTLD_LAZY | RTLD_NOLOAD);
+  if (!handle) {
+    return nullptr;
+  }
+  auto control = reinterpret_cast<SetVulkanTraceEnabled>(
+      dlsym(handle, "FncSetVulkanTraceEnabled"));
+  dlclose(handle);
+  return control;
+}
 }
 
 @interface FNCCaptureButton : UIButton
@@ -92,8 +108,17 @@ constexpr int64_t kCaptureMs = 200;
   _busy = YES;
   [self setLabel:@"CAPTURING…"];
   REXLOG_INFO("[gpu-capture] started -> {}", path.UTF8String);
+  const auto trace_control = FindVulkanTraceControl();
+  if (trace_control) {
+    trace_control(true);
+  } else {
+    REXLOG_WARN("[gpu-capture] Vulkan trace control unavailable");
+  }
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kCaptureMs * NSEC_PER_MSEC),
                  dispatch_get_main_queue(), ^{
+                   if (trace_control) {
+                     trace_control(false);
+                   }
                    [manager stopCapture];
                    REXLOG_INFO("[gpu-capture] stopped after {} ms: {}", kCaptureMs,
                                path.lastPathComponent.UTF8String);

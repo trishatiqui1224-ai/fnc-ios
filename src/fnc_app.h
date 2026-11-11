@@ -7,6 +7,7 @@
 #include <rex/rex_app.h>
 #if REX_PLATFORM_IOS
 #include "lifecycle.h"
+extern "C" void nfsmw_ios_suspend_paints(bool suspend);
 #endif
 
 extern const rex::PPCImageInfo PPCImageConfig;
@@ -37,9 +38,9 @@ class FncApp : public rex::ReXApp {
   // void OnPostLoadXexImage() override {}
   void OnPostSetup() override {
 #if REX_PLATFORM_IOS
-    if (auto* graphics = runtime()->graphics_system()) {
-      nfsmw::lifecycle::Install([graphics] { graphics->Pause(); },
-                               [graphics] { graphics->Resume(); });
+    if (runtime()->graphics_system()) {
+      nfsmw::lifecycle::Install([] { nfsmw_ios_suspend_paints(true); },
+                               [] { nfsmw_ios_suspend_paints(false); });
     }
 #endif
     // Crash reporter; the sampling profiler only runs when a "profile_on" file sits next to

@@ -257,6 +257,7 @@ void Install(std::function<void()> pause, std::function<void()> resume) {
 }
 
 void ClearCallbacks() {
+  Resume("shutdown");
   g_pause = {};
   g_resume = {};
   g_paused.store(false, std::memory_order_relaxed);

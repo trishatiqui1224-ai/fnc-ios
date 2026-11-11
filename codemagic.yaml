@@ -1,0 +1,116 @@
+workflows:
+  fnc-ios-unsigned:
+    name: Fight Night Champion iOS (unsigned IPA)
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      xcode: "16.4"
+    scripts:
+      - name: Install build dependencies
+        script: |
+          set -euo pipefail
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          for formula in cmake ninja python@3.12; do
+            brew list --versions "$formula" >/dev/null || brew install "$formula"
+          done
+          "$(brew --prefix python@3.12)/bin/python3.12" -m venv .codemagic-venv
+          .codemagic-venv/bin/python -m pip install -r requirements.txt
+          echo "PATH=$CM_BUILD_DIR/.codemagic-venv/bin:$PATH" >> "$CM_ENV"
+          git submodule update --init --recursive
+          xcodebuild -version
+          xcrun --sdk iphoneos --find clang
+      - name: 'Setup AppIcon & Assets Catalog'
+        script: |
+          set -euo pipefail
+          python3 tools/generate_appicon.py
+      - name: 'Extract Shaders & Generate Seed Pipeline Cache'
+        script: |
+          set -euo pipefail
+          python3 tools/extract_shaders.py
+      - name: 'Restore or Prepare Game Codegen (PowerPC to C++)'
+        script: |
+          set -euo pipefail
+          mkdir -p generated/default
+          python3 tools/generate_code.py --unpack-cache
+      - name: 'Prepare ReXGlue iOS SDK'
+        script: |
+          set -euo pipefail
+          python3 tools/ios/prepare_sdk.py --sdk "../rexglue-sdk-ios"
+          if [ -d "../rexglue-sdk-ios" ]; then
+            (cd ../rexglue-sdk-ios && git tag -f v0.10.0 HEAD 2>/dev/null || true)
+          fi
+      - name: 'Verify Codegen (Fail-Fast)'
+        script: |
+          set -euo pipefail
+          python3 tools/verify_codegen.py
+      - name: 'Pre-Flight Check: Verify Argv & Post-Launcher Handoff (ASan/UBSan)'
+        script: |
+          set -euo pipefail
+          echo "[CI] Compiling and running host argv deduplication and handoff test with ASan/UBSan..."
+          clang++ -std=c++20 -fsanitize=address,undefined -Wall -Wextra tools/test_argv_dedup.cpp -o /tmp/test_argv_dedup
+          /tmp/test_argv_dedup
+          rm -f /tmp/test_argv_dedup
+          echo "[CI] Pre-flight handoff test PASSED with 0 sanitize violations."
+      - name: 'Configure CMake for iOS (arm64 Native)'
+        script: |
+          set -euo pipefail
+          cd ios
+          export CC="$(xcrun --sdk iphoneos --find clang)"
+          export CXX="$(xcrun --sdk iphoneos --find clang++)"
+          export OBJC="${CC}"
+          export OBJCXX="${CXX}"
+          cmake --preset ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+            -DREX_PLATFORM_IOS=1 \
+            -DCMAKE_C_COMPILER="${CC}" \
+            -DCMAKE_CXX_COMPILER="${CXX}" \
+            -DCMAKE_OBJC_COMPILER="${CC}" \
+            -DCMAKE_OBJCXX_COMPILER="${CXX}" \
+            -DCMAKE_ASM_COMPILER="${CC}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=""
+      - name: 'Compile and Package IPA'
+        script: |
+          set -euo pipefail
+          cd ios
+          cmake --build --preset ios --target ipa -- -j 4
+      - name: 'Mandatory CI Pre-Upload Verification Gate'
+        script: |
+          set -euo pipefail
+          IPA_PATH="ios/build/FNCReborn-iOS-unsigned.ipa"
+          if [ ! -f "${IPA_PATH}" ]; then
+            IPA_PATH="ios/build/FNCReborn.ipa"
+          fi
+          if [ ! -f "${IPA_PATH}" ]; then
+            echo "[CI Gate] FATAL: IPA not found!"
+            exit 1
+          fi
+
+          IPA_CONTENTS_SIZE=$(unzip -l "${IPA_PATH}" | awk '/^[[:space:]]*[0-9]+[[:space:]]/ { total += $1 } END { print total + 0 }')
+          echo "[CI Gate] Uncompressed IPA contents: ${IPA_CONTENTS_SIZE} bytes"
+          if [ "${IPA_CONTENTS_SIZE}" -lt 83886080 ]; then
+            echo "[CI Gate] FATAL: uncompressed IPA contents are less than 80 MB (${IPA_CONTENTS_SIZE} bytes)! Recompilation files or frameworks may be missing!"
+            exit 1
+          fi
+
+          echo "[CI Gate] Verifying binary execution permissions in IPA:"
+          zipinfo -l "${IPA_PATH}" | grep -E "Payload/FNCReborn.app/FNCReborn|Payload/FNCReborn.app/Frameworks/"
+
+          echo "[CI Gate] Checking for AppIcon and prewarmed shader cache inside IPA:"
+          unzip -l "${IPA_PATH}" | grep -E "AppIcon|45410915.fbo.vkcache|FNCShaders.metallib"
+
+          mkdir -p dist
+          cp -f "${IPA_PATH}" dist/FNCReborn-iOS-unsigned.ipa
+          cd dist
+          shasum -a 256 FNCReborn-iOS-unsigned.ipa > SHA256SUMS.txt
+          echo "[CI Gate] Generated SHA256SUMS.txt:"
+          cat SHA256SUMS.txt
+    artifacts:
+      - dist/FNCReborn-iOS-unsigned.ipa
+      - dist/SHA256SUMS.txt

@@ -25,6 +25,7 @@
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
+#include "gpu_capture.h"
 #include <rex/rex_app.h>
 #include <rex/ui/windowed_app.h>
 #include <rex/ui/windowed_app_context_sdl.h>
@@ -381,6 +382,10 @@ int main(int argc, char* argv[]) {
     const bool initialized = app->OnInitialize();
     fnc::boot::Trace(initialized ? "game: OnInitialize done, entering main loop"
                                 : "game: OnInitialize FAILED (see fnc.log)");
+
+    if (initialized) {
+      dispatch_async(dispatch_get_main_queue(), ^{ fnc::gpu_capture::InstallButton(); });
+    }
 
     const int exit_code = initialized ? context.RunMainMessageLoop() : 1;
     fnc::boot::Trace("game: main loop exited with code: " + std::to_string(exit_code));

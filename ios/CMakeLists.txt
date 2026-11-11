@@ -190,6 +190,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
 
 set(FNC_APP_SOURCES
     src/ios_main.mm
+    src/gpu_capture.mm
     # ReXApp is implemented by the consuming executable, not librexruntime.
     "${FNC_SDK}/src/ui/rex_app.cpp"
     src/launcher.mm

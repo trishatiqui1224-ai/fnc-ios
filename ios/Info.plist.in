@@ -103,6 +103,9 @@
 		</dict>
 	</dict>
 
+	<key>MetalCaptureEnabled</key>
+	<true/>
+
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

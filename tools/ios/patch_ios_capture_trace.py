@@ -6,9 +6,10 @@ from patch_engine import run
 CP = "src/graphics/vulkan/command_processor.cpp"
 CACHE = "src/graphics/pipeline/texture/cache.cpp"
 
-NAMESPACE = "namespace rex::graphics::vulkan {\n"
+CP_INCLUDE = "#include <rex/graphics/vulkan/command_processor.h>\n"
 STATE = r'''#if REX_PLATFORM_IOS
 #include <atomic>
+#include <mutex>
 
 namespace {
 std::atomic<bool> fnc_capture_active{false};
@@ -108,17 +109,17 @@ UPLOAD_TRACE = r'''#if REX_PLATFORM_IOS
 #endif
 '''
 
-# The cache is in a different namespace. Declare the shared gate before entering it.
-CACHE_NAMESPACE = "namespace rex::graphics {\n"
+# Declare the shared gate at file scope, outside the cache namespace.
+CACHE_INCLUDE = "#include <rex/graphics/pipeline/texture/info.h>\n"
 DECLARATION = ("#if REX_PLATFORM_IOS\n"
                "bool FncReserveVulkanTraceEvent(unsigned kind, unsigned& event);\n"
                "#endif\n\n")
 
 if __name__ == "__main__":
     sys.exit(run("ios_capture_trace", [
-        (CP, "capture gate", NAMESPACE, STATE + NAMESPACE),
+        (CP, "capture gate", CP_INCLUDE, CP_INCLUDE + "\n" + STATE),
         (CP, "draw bindings", DRAW, DRAW + DRAW_TRACE),
         (CP, "resolve ranges", RESOLVE, RESOLVE_TRACE + RESOLVE),
-        (CACHE, "upload gate declaration", CACHE_NAMESPACE, DECLARATION + CACHE_NAMESPACE),
+        (CACHE, "upload gate declaration", CACHE_INCLUDE, CACHE_INCLUDE + "\n" + DECLARATION),
         (CACHE, "texture uploads", UPLOAD, UPLOAD + UPLOAD_TRACE),
     ]))
